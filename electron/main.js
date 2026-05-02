@@ -19,8 +19,78 @@ const DEFAULT_SETTINGS = {
   colorTheme: 'GitHub Dark',
 };
 
+const COMMAND_SUGGESTIONS = [
+  'cd',
+  'dir',
+  'ls',
+  'pwd',
+  'mkdir',
+  'rmdir',
+  'copy',
+  'move',
+  'del',
+  'clear',
+  'cls',
+  'git',
+  'npm',
+  'node',
+  'bun',
+  'code',
+  'gh',
+];
+
 function getAssetPath(...parts) {
   return path.join(__dirname, '..', ...parts);
+}
+
+function normalizePathPart(value) {
+  return String(value || '').replace(/^['"]|['"]$/g, '');
+}
+
+function getAutocompleteSuggestions({ input = '', cwd = '' }) {
+  const line = String(input).trimStart();
+  if (!line) return [];
+
+  const cdMatch = line.match(/^cd\s+(.+)?$/i);
+  if (cdMatch) {
+    const rawQuery = normalizePathPart(cdMatch[1] || '');
+    const lastSlash = Math.max(rawQuery.lastIndexOf('/'), rawQuery.lastIndexOf('\\'));
+    const parentPart = lastSlash >= 0 ? rawQuery.slice(0, lastSlash + 1) : '';
+    const namePart = lastSlash >= 0 ? rawQuery.slice(lastSlash + 1) : rawQuery;
+    const baseDir = path.resolve(cwd || os.homedir(), parentPart || '.');
+
+    try {
+      return fs.readdirSync(baseDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(namePart.toLowerCase()))
+        .slice(0, 8)
+        .map((entry) => {
+          const value = `${parentPart}${entry.name}`;
+          const escaped = /\s/.test(value) ? `"${value}"` : value;
+          return {
+            label: entry.name,
+            detail: baseDir,
+            insertText: escaped,
+            replaceFrom: line.length - rawQuery.length,
+          };
+        });
+    } catch {
+      return [];
+    }
+  }
+
+  if (!line.includes(' ')) {
+    return COMMAND_SUGGESTIONS
+      .filter((cmd) => cmd.startsWith(line.toLowerCase()))
+      .slice(0, 8)
+      .map((cmd) => ({
+        label: cmd,
+        detail: 'command',
+        insertText: cmd,
+        replaceFrom: 0,
+      }));
+  }
+
+  return [];
 }
 
 function ensureDir() {
@@ -281,6 +351,8 @@ ipcMain.handle('get-shell-cwd', (_, tabId) => {
 ipcMain.handle('resize-pty', (_, { tabId, cols, rows }) => {
   shellMap[tabId]?.proc?.resize(cols, rows);
 });
+
+ipcMain.handle('get-autocomplete-suggestions', (_, opts) => getAutocompleteSuggestions(opts || {}));
 
 // ── Workspaces IPC ──
 

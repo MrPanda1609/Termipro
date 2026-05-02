@@ -17,6 +17,7 @@ if (!window.electron) {
     killShell: (tabId) => window.require('electron').ipcRenderer.invoke('kill-shell', tabId),
     runCommand: (opts) => window.require('electron').ipcRenderer.invoke('run-command', opts),
     resizePty: (opts) => window.require('electron').ipcRenderer.invoke('resize-pty', opts),
+    getAutocompleteSuggestions: (opts) => window.require('electron').ipcRenderer.invoke('get-autocomplete-suggestions', opts),
     readClipboardText: () => window.require('electron').clipboard.readText(),
     hasClipboardImage: () => !window.require('electron').clipboard.readImage().isEmpty(),
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),

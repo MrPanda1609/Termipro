@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -22,6 +22,10 @@ function enforceCursorPreferences(data, settings) {
   return data.replace(/\x1b\[(?:\d+)? q/g, `\x1b[${style} q`);
 }
 
+function getInputValue(input) {
+  return typeof input === 'string' ? input : '';
+}
+
 export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }) {
   const containerRef = useRef(null);
   const terminalRef = useRef(null);
@@ -30,15 +34,79 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   const resizeCommitRef = useRef(null);
   const lastSizeRef = useRef({ cols: 0, rows: 0 });
   const tabIdRef = useRef(tabId);
+  const cwdRef = useRef(cwd);
+  const inputRef = useRef('');
+  const suggestionsRef = useRef([]);
+  const selectedSuggestionRef = useRef(0);
+  const suggestionTimerRef = useRef(null);
   const { settings } = useStore();
   const settingsRef = useRef(settings);
   const theme = getThemeColors(settings.colorTheme);
+  const [suggestions, setSuggestions] = useState([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
 
   settingsRef.current = settings;
+  cwdRef.current = cwd;
+  suggestionsRef.current = suggestions;
+  selectedSuggestionRef.current = selectedSuggestion;
 
   useEffect(() => {
     tabIdRef.current = tabId;
   }, [tabId]);
+
+  const hideSuggestions = () => {
+    suggestionsRef.current = [];
+    selectedSuggestionRef.current = 0;
+    setSuggestions([]);
+    setSelectedSuggestion(0);
+  };
+
+  const scheduleSuggestions = () => {
+    clearTimeout(suggestionTimerRef.current);
+    const input = getInputValue(inputRef.current);
+    if (!input.trim()) {
+      hideSuggestions();
+      return;
+    }
+
+    suggestionTimerRef.current = setTimeout(async () => {
+      const items = await window.electron.getAutocompleteSuggestions?.({ input, cwd: cwdRef.current });
+      if (inputRef.current !== input) return;
+      suggestionsRef.current = items || [];
+      selectedSuggestionRef.current = 0;
+      setSuggestions(suggestionsRef.current);
+      setSelectedSuggestion(0);
+    }, 120);
+  };
+
+  const trackInput = (data) => {
+    for (const ch of String(data)) {
+      if (ch === '\r' || ch === '\n') {
+        inputRef.current = '';
+        hideSuggestions();
+      } else if (ch === '\b' || ch === '\x7f') {
+        inputRef.current = inputRef.current.slice(0, -1);
+      } else if (ch >= ' ' && ch !== '\x7f') {
+        inputRef.current += ch;
+      }
+    }
+    scheduleSuggestions();
+  };
+
+  const applySuggestion = (suggestion = suggestionsRef.current[selectedSuggestionRef.current]) => {
+    if (!suggestion) return;
+
+    const input = getInputValue(inputRef.current);
+    const replaceFrom = Math.max(0, Math.min(input.length, suggestion.replaceFrom ?? 0));
+    const nextInput = `${input.slice(0, replaceFrom)}${suggestion.insertText}`;
+    const eraseCount = input.length - replaceFrom;
+    const data = `${'\x7f'.repeat(eraseCount)}${suggestion.insertText}`;
+
+    inputRef.current = nextInput;
+    window.electron.writePty({ tabId: tabIdRef.current, data });
+    hideSuggestions();
+    terminalRef.current?.focus();
+  };
 
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
@@ -85,6 +153,33 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     term.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true;
 
+      if (suggestionsRef.current.length > 0) {
+        if (event.key === 'ArrowDown') {
+          const next = (selectedSuggestionRef.current + 1) % suggestionsRef.current.length;
+          selectedSuggestionRef.current = next;
+          setSelectedSuggestion(next);
+          event.preventDefault();
+          return false;
+        }
+        if (event.key === 'ArrowUp') {
+          const next = (selectedSuggestionRef.current - 1 + suggestionsRef.current.length) % suggestionsRef.current.length;
+          selectedSuggestionRef.current = next;
+          setSelectedSuggestion(next);
+          event.preventDefault();
+          return false;
+        }
+        if (event.key === 'Tab' || event.key === 'Enter') {
+          applySuggestion();
+          event.preventDefault();
+          return false;
+        }
+        if (event.key === 'Escape') {
+          hideSuggestions();
+          event.preventDefault();
+          return false;
+        }
+      }
+
       // Luma uses Alt+Enter for multiline. Termipro maps Shift+Enter to the
       // same terminal sequence so AI chat input feels natural.
       if (event.key === 'Enter' && event.shiftKey) {
@@ -114,6 +209,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     });
 
     const dataDisposable = term.onData((data) => {
+      trackInput(data);
       window.electron.writePty({ tabId: tabIdRef.current, data });
     });
 
@@ -177,6 +273,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     return () => {
       if (resizeFrameRef.current) cancelAnimationFrame(resizeFrameRef.current);
       clearTimeout(resizeCommitRef.current);
+      clearTimeout(suggestionTimerRef.current);
       containerRef.current?.removeEventListener('mousedown', focus);
       containerRef.current?.removeEventListener('mousedown', onScrollbarMouseDown, true);
       containerRef.current?.removeEventListener('click', focus);
@@ -230,6 +327,52 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         background: theme.background,
         padding: '8px 12px',
       }}
-    />
+    >
+      {active && suggestions.length > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 12,
+            bottom: 12,
+            minWidth: 260,
+            maxWidth: 520,
+            padding: 6,
+            borderRadius: 9,
+            border: `1px solid ${theme.brightBlack}`,
+            background: 'rgba(22, 27, 34, 0.98)',
+            boxShadow: '0 14px 34px rgba(0, 0, 0, 0.35)',
+            zIndex: 10,
+          }}
+        >
+          {suggestions.map((item, index) => (
+            <button
+              key={`${item.label}-${index}`}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                applySuggestion(item);
+              }}
+              style={{
+                width: '100%',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 10,
+                padding: '7px 9px',
+                border: 'none',
+                borderRadius: 7,
+                color: index === selectedSuggestion ? theme.brightWhite : theme.foreground,
+                background: index === selectedSuggestion ? 'rgba(88, 166, 255, 0.18)' : 'transparent',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontFamily: settings.font.family,
+                fontSize: 12,
+              }}
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
+              <span style={{ color: theme.brightBlack, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.detail}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
