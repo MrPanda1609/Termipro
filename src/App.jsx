@@ -24,6 +24,7 @@ if (!window.electron) {
     closeWindow: () => window.require('electron').ipcRenderer.invoke('window-close'),
     getWorkspaces: () => window.require('electron').ipcRenderer.invoke('get-workspaces'),
     saveWorkspaces: (ws) => window.require('electron').ipcRenderer.invoke('save-workspaces', ws),
+    getAppInfo: () => window.require('electron').ipcRenderer.invoke('get-app-info'),
     checkForUpdates: () => window.require('electron').ipcRenderer.invoke('check-for-updates'),
     onPtyData: (cb) => window.require('electron').ipcRenderer.on('shell-data', (_, d) => cb(d)),
     onShellClear: (cb) => window.require('electron').ipcRenderer.on('shell-clear', (_, d) => cb(d)),

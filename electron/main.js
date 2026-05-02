@@ -252,6 +252,11 @@ ipcMain.handle('open-folder', (_, folderPath) => {
 
 ipcMain.handle('get-home-dir', () => os.homedir());
 
+ipcMain.handle('get-app-info', () => ({
+  name: 'Termipro',
+  version: app.getVersion(),
+}));
+
 ipcMain.handle('check-for-updates', async () => {
   if (process.env.NODE_ENV === 'development') return { skipped: true };
   await autoUpdater.checkForUpdates();
