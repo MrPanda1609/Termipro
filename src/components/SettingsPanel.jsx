@@ -15,6 +15,16 @@ const FONT_FAMILIES = [
   'monospace',
 ];
 
+function getShortUpdateError(error) {
+  const message = String(error?.message || error || 'Unknown update error');
+
+  if (message.includes('404') || message.includes('releases.atom') || message.includes('Cannot find latest.yml')) {
+    return 'Cannot reach the update feed. Make the GitHub repository public, or use a public update host.';
+  }
+
+  return message.split('\n')[0].slice(0, 220);
+}
+
 export default function SettingsPanel({ open, onClose }) {
   const { settings, updateSettings, updateNested, installedShells } = useStore();
   const [browseHover, setBrowseHover] = useState(false);
@@ -44,7 +54,7 @@ export default function SettingsPanel({ open, onClose }) {
         setUpdateStatus('Termipro is already up to date.');
       } else if (status.state === 'error') {
         setCheckingUpdate(false);
-        setUpdateStatus(status.message ? `Update check failed: ${status.message}` : 'Update check failed.');
+        setUpdateStatus(status.message ? `Update check failed: ${getShortUpdateError(status.message)}` : 'Update check failed.');
       }
     };
 
@@ -63,7 +73,7 @@ export default function SettingsPanel({ open, onClose }) {
       }
     } catch (error) {
       setCheckingUpdate(false);
-      setUpdateStatus(`Update check failed: ${error.message}`);
+      setUpdateStatus(`Update check failed: ${getShortUpdateError(error)}`);
     }
   };
 

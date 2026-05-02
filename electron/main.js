@@ -50,6 +50,22 @@ function sendUpdateStatus(status) {
   }
 }
 
+function getUpdateErrorMessage(error) {
+  const message = String(error?.message || error || 'Unknown update error');
+
+  if (message.includes('404') || message.includes('Cannot find latest.yml') || message.includes('releases.atom')) {
+    return 'Cannot reach the update feed. Make the GitHub repository public, or use a public update host.';
+  }
+  if (message.includes('ENOENT') || message.includes('not found')) {
+    return 'Update files are missing from the GitHub release. Please check latest.yml and installer assets.';
+  }
+  if (message.includes('sha512')) {
+    return 'The downloaded update did not match the published checksum.';
+  }
+
+  return message.split('\n')[0].slice(0, 220);
+}
+
 function setupAutoUpdater() {
   if (process.env.NODE_ENV === 'development') return;
 
@@ -77,7 +93,7 @@ function setupAutoUpdater() {
       if (response === 0) autoUpdater.quitAndInstall(false, true);
     });
   });
-  autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: error.message }));
+  autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: getUpdateErrorMessage(error) }));
 }
 
 function createWindow() {
@@ -109,7 +125,7 @@ function createWindow() {
     mainWindow.webContents.once('did-finish-load', () => {
       autoUpdater.checkForUpdates().catch((error) => sendUpdateStatus({
         state: 'error',
-        message: error.message,
+        message: getUpdateErrorMessage(error),
       }));
     });
   }
@@ -288,8 +304,14 @@ ipcMain.handle('get-home-dir', () => os.homedir());
 
 ipcMain.handle('check-for-updates', async () => {
   if (process.env.NODE_ENV === 'development') return { skipped: true };
-  await autoUpdater.checkForUpdates();
-  return { skipped: false };
+  try {
+    await autoUpdater.checkForUpdates();
+    return { skipped: false };
+  } catch (error) {
+    const message = getUpdateErrorMessage(error);
+    sendUpdateStatus({ state: 'error', message });
+    return { skipped: false, error: message };
+  }
 });
 
 // ── Window controls ──
