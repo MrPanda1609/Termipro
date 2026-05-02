@@ -153,12 +153,44 @@ ipcMain.handle('get-installed-shells', () => {
 
 // ── PTY IPC ──
 
+function psQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function getTermiproPromptPowerShell() {
+  const appName = psQuote('Termipro');
+  const version = psQuote(`v${app.getVersion()}`);
+  return [
+    'function global:prompt {',
+    '  $p = $executionContext.SessionState.Path.CurrentLocation.Path',
+    '  Write-Host $p -NoNewline -ForegroundColor Yellow',
+    "  Write-Host ' > ' -NoNewline -ForegroundColor DarkGray",
+    `  Write-Host ${appName} -NoNewline -ForegroundColor Cyan`,
+    "  Write-Host ' > ' -NoNewline -ForegroundColor DarkGray",
+    `  Write-Host ${version} -NoNewline -ForegroundColor Green`,
+    '  return "`n> "',
+    '}',
+  ].join('; ');
+}
+
+function getTermiproPromptCmd() {
+  const version = app.getVersion();
+  return [
+    '$E[38;2;255;166;87m$P$E[0m',
+    '$E[38;2;139;148;158m $G $E[0m',
+    '$E[38;2;88;166;255mTermipro$E[0m',
+    '$E[38;2;139;148;158m $G $E[0m',
+    `$E[38;2;126;231;135mv${version}$E[0m`,
+    '$_$G$S',
+  ].join('');
+}
+
 function getShellCommand(id) {
   switch (id) {
-    case 'cmd': return { cmd: process.env.ComSpec || 'cmd.exe', args: [] };
+    case 'cmd': return { cmd: process.env.ComSpec || 'cmd.exe', args: ['/K', `prompt ${getTermiproPromptCmd()}`] };
     case 'git-bash': return { cmd: 'C:\\Program Files\\Git\\bin\\bash.exe', args: ['--login', '-i'] };
     case 'wsl': return { cmd: 'wsl.exe', args: [] };
-    default: return { cmd: 'powershell.exe', args: ['-NoLogo'] };
+    default: return { cmd: 'powershell.exe', args: ['-NoLogo', '-NoExit', '-Command', getTermiproPromptPowerShell()] };
   }
 }
 
@@ -251,11 +283,6 @@ ipcMain.handle('open-folder', (_, folderPath) => {
 });
 
 ipcMain.handle('get-home-dir', () => os.homedir());
-
-ipcMain.handle('get-app-info', () => ({
-  name: 'Termipro',
-  version: app.getVersion(),
-}));
 
 ipcMain.handle('check-for-updates', async () => {
   if (process.env.NODE_ENV === 'development') return { skipped: true };

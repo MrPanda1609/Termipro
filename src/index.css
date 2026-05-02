@@ -60,14 +60,6 @@ html {
   pointer-events: auto;
 }
 
-.xterm .xterm-screen {
-  padding: 8px 12px;
-}
-
-.xterm .xterm-helpers {
-  padding: 8px 12px;
-}
-
 .xterm.focus .xterm-cursor,
 .xterm:focus .xterm-cursor {
   visibility: visible !important;

@@ -22,23 +22,6 @@ function enforceCursorPreferences(data, settings) {
   return data.replace(/\x1b\[(?:\d+)? q/g, `\x1b[${style} q`);
 }
 
-function color(code, text) {
-  return `\x1b[${code}m${text}\x1b[0m`;
-}
-
-function writeStartupPrompt(term, cwd, appInfo) {
-  const appName = appInfo?.name || 'Termipro';
-  const version = appInfo?.version ? `v${appInfo.version}` : '';
-  const folder = cwd || '';
-  const prompt = [
-    color('38;2;255;166;87', folder),
-    color('38;2;88;166;255', appName),
-    version ? color('38;2;126;231;135', version) : '',
-  ].filter(Boolean).join(color('38;2;139;148;158', ' > '));
-
-  term.write(`\x1b[2K\r${prompt}\r\n`);
-}
-
 export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }) {
   const containerRef = useRef(null);
   const terminalRef = useRef(null);
@@ -187,8 +170,6 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         term.write(`\r\n\x1b[31mFailed to start shell: ${result?.error || 'unknown error'}\x1b[0m\r\n`);
         return;
       }
-      const appInfo = await window.electron.getAppInfo?.();
-      writeStartupPrompt(term, result.cwd, appInfo);
       if (result.cwd) onCwdChange?.(result.cwd);
       resize();
     });
@@ -247,6 +228,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         inset: 0,
         display: active ? 'block' : 'none',
         background: theme.background,
+        padding: '8px 12px',
       }}
     />
   );
