@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store/index.jsx';
 import { COLOR_THEMES, getThemePreviewColors } from '../themes/index.jsx';
 import logoUrl from '../../pic/logo.png';
@@ -18,8 +18,54 @@ const FONT_FAMILIES = [
 export default function SettingsPanel({ open, onClose }) {
   const { settings, updateSettings, updateNested, installedShells } = useStore();
   const [browseHover, setBrowseHover] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState('Ready to check for updates.');
 
   const themeEntries = Object.entries(COLOR_THEMES);
+
+  useEffect(() => {
+    const handler = (status) => {
+      if (!status?.state) return;
+
+      if (status.state === 'checking') {
+        setCheckingUpdate(true);
+        setUpdateStatus('Checking for updates...');
+      } else if (status.state === 'available') {
+        setCheckingUpdate(true);
+        setUpdateStatus(`Update ${status.version || ''} found. Downloading...`);
+      } else if (status.state === 'downloading') {
+        setCheckingUpdate(true);
+        setUpdateStatus(`Downloading update${Number.isFinite(status.percent) ? ` ${status.percent}%` : '...'}`);
+      } else if (status.state === 'downloaded') {
+        setCheckingUpdate(false);
+        setUpdateStatus(`Update ${status.version || ''} is ready. Choose Restart now to install.`);
+      } else if (status.state === 'none') {
+        setCheckingUpdate(false);
+        setUpdateStatus('Termipro is already up to date.');
+      } else if (status.state === 'error') {
+        setCheckingUpdate(false);
+        setUpdateStatus(status.message ? `Update check failed: ${status.message}` : 'Update check failed.');
+      }
+    };
+
+    window.electron.onUpdateStatus?.(handler);
+    return () => window.electron.offUpdateStatus?.(handler);
+  }, []);
+
+  const checkForUpdates = async () => {
+    setCheckingUpdate(true);
+    setUpdateStatus('Checking for updates...');
+    try {
+      const result = await window.electron.checkForUpdates();
+      if (result?.skipped) {
+        setCheckingUpdate(false);
+        setUpdateStatus('Update checks are available in the installed app.');
+      }
+    } catch (error) {
+      setCheckingUpdate(false);
+      setUpdateStatus(`Update check failed: ${error.message}`);
+    }
+  };
 
   return (
     <div
@@ -83,6 +129,19 @@ export default function SettingsPanel({ open, onClose }) {
               <div style={{ color: '#c9d1d9', fontWeight: 600, fontSize: 13 }}>Termipro</div>
               <div style={{ color: '#8b949e', fontSize: 11 }}>Modern AI coding terminal</div>
             </div>
+          </div>
+          <button
+            onClick={checkForUpdates}
+            disabled={checkingUpdate}
+            style={{
+              ...updateBtnStyle,
+              ...(checkingUpdate ? updateBtnDisabled : {}),
+            }}
+          >
+            {checkingUpdate ? 'Checking...' : 'Check for updates'}
+          </button>
+          <div style={{ color: '#8b949e', fontSize: 12, lineHeight: 1.4, marginTop: 8 }}>
+            {updateStatus}
           </div>
         </Section>
 
@@ -419,4 +478,22 @@ const browseBtnStyle = {
 const browseBtnHover = {
   borderColor: '#58a6ff',
   color: '#58a6ff',
+};
+
+const updateBtnStyle = {
+  width: '100%',
+  marginTop: 10,
+  padding: '8px 12px',
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#ffffff',
+  background: '#238636',
+  border: '1px solid #2ea043',
+  borderRadius: 7,
+  cursor: 'pointer',
+};
+
+const updateBtnDisabled = {
+  opacity: 0.65,
+  cursor: 'default',
 };

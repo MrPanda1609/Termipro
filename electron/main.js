@@ -220,7 +220,9 @@ ipcMain.handle('create-shell', (_, { cwd, cols, rows, tabId, shell }) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('shell-exit', { tabId, exitCode });
       }
-      delete shellMap[tabId];
+      if (shellMap[tabId]?.proc === proc) {
+        delete shellMap[tabId];
+      }
     });
 
     return { success: true, cwd: dir };
