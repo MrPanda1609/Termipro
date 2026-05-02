@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-electron/
+release/
+tmp-app/
+vs-installations.json
+*.log
+.DS_Store
+.env.local

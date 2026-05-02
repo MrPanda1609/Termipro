@@ -1,0 +1,89 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0d1117;
+  color: #c9d1d9;
+  overflow: hidden;
+  user-select: none;
+}
+
+html {
+  background: #0d1117;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* xterm custom overrides to match screenshot */
+.xterm {
+  width: 100%;
+  height: 100%;
+  background: var(--term-bg, #0d1117) !important;
+}
+
+.xterm .xterm-screen,
+.xterm .xterm-viewport {
+  background-color: var(--term-bg, #0d1117) !important;
+}
+
+.xterm .xterm-viewport {
+  overflow-y: scroll !important;
+  pointer-events: auto;
+}
+
+.xterm .xterm-screen {
+  padding: 8px 12px;
+}
+
+.xterm .xterm-helpers {
+  padding: 8px 12px;
+}
+
+.xterm.focus .xterm-cursor,
+.xterm:focus .xterm-cursor {
+  visibility: visible !important;
+}
+
+.xterm .xterm-cursor-layer {
+  z-index: 4;
+}
+
+.titlebar-btn:hover,
+.window-btn:hover,
+.menu-item:hover {
+  background: rgba(88, 166, 255, 0.16) !important;
+}
+
+.window-btn-close:hover {
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
