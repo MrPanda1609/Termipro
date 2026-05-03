@@ -24,6 +24,13 @@ if (!window.electron) {
     rememberFolder: (dir) => window.require('electron').ipcRenderer.invoke('remember-folder', dir),
     readClipboardText: () => window.require('electron').clipboard.readText(),
     hasClipboardImage: () => !window.require('electron').clipboard.readImage().isEmpty(),
+    writeClipboardImage: (filePath) => {
+      const { clipboard, nativeImage } = window.require('electron');
+      const image = nativeImage.createFromPath(filePath);
+      if (image.isEmpty()) return false;
+      clipboard.writeImage(image);
+      return true;
+    },
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),
     toggleMaximizeWindow: () => window.require('electron').ipcRenderer.invoke('window-toggle-maximize'),
     closeWindow: () => window.require('electron').ipcRenderer.invoke('window-close'),
