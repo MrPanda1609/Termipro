@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell: electronShell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell: electronShell, Menu, Tray } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -8,6 +8,7 @@ const pty = require('node-pty');
 const SETTINGS_DIR = path.join(app.getPath('userData'), 'Termipro');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json');
 const WORKSPACES_FILE = path.join(SETTINGS_DIR, 'workspaces.json');
+const COMMAND_HISTORY_FILE = path.join(SETTINGS_DIR, 'command-history.json');
 
 const DEFAULT_SETTINGS = {
   font: { family: 'Cascadia Code', size: 14 },
@@ -112,7 +113,71 @@ function saveSettings(s) {
 }
 
 let mainWindow = null;
+let tray = null;
+let isQuitting = false;
 const shellMap = {};
+
+function readJsonFile(filePath, fallback) {
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); }
+  catch { return fallback; }
+}
+
+function writeJsonFile(filePath, value) {
+  ensureDir();
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function normalizeDirKey(dir) {
+  return path.resolve(dir || os.homedir()).toLowerCase();
+}
+
+function findProjectRoot(dir) {
+  let current = path.resolve(dir || os.homedir());
+  while (true) {
+    if (['.git', 'package.json', 'bun.lockb', 'pnpm-lock.yaml', 'yarn.lock', 'requirements.txt', 'pyproject.toml', 'Cargo.toml'].some((name) => fs.existsSync(path.join(current, name)))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(dir || os.homedir());
+    current = parent;
+  }
+}
+
+function getCommandHistory() {
+  return readJsonFile(COMMAND_HISTORY_FILE, { folders: {}, projects: {} });
+}
+
+function rememberCommand(cwd, command) {
+  const clean = String(command || '').trim();
+  if (!clean || clean.length > 500) return;
+
+  const dir = cwd || os.homedir();
+  const folderKey = normalizeDirKey(dir);
+  const projectKey = normalizeDirKey(findProjectRoot(dir));
+  const history = getCommandHistory();
+
+  for (const [group, key] of [['folders', folderKey], ['projects', projectKey]]) {
+    const previous = Array.isArray(history[group]?.[key]) ? history[group][key] : [];
+    history[group] = history[group] || {};
+    history[group][key] = [clean, ...previous.filter((item) => item !== clean)].slice(0, 20);
+  }
+
+  writeJsonFile(COMMAND_HISTORY_FILE, history);
+}
+
+function getQuickCommands(cwd) {
+  const dir = cwd || os.homedir();
+  const history = getCommandHistory();
+  const folderKey = normalizeDirKey(dir);
+  const projectRoot = findProjectRoot(dir);
+  const projectKey = normalizeDirKey(projectRoot);
+
+  return {
+    folder: history.folders?.[folderKey] || [],
+    project: history.projects?.[projectKey] || [],
+    projectRoot,
+  };
+}
 
 function sendUpdateStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -166,6 +231,31 @@ function setupAutoUpdater() {
   autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: getUpdateErrorMessage(error) }));
 }
 
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function setupTray() {
+  if (tray) return;
+
+  tray = new Tray(getAssetPath('pic', 'icon.png'));
+  tray.setToolTip('Termipro');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Termipro', click: showMainWindow },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        mainWindow?.close();
+      },
+    },
+  ]));
+  tray.on('double-click', showMainWindow);
+}
+
 function createWindow() {
   Menu.setApplicationMenu(null);
 
@@ -186,6 +276,32 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('close', (event) => {
+    if (isQuitting) return;
+
+    const { response } = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Hide to tray', 'Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'Close Termipro?',
+      message: 'Do you want to keep Termipro running in the background?',
+      detail: 'Hide to tray keeps all terminal processes running. Quit closes Termipro and stops terminal sessions.',
+    });
+
+    if (response === 0) {
+      event.preventDefault();
+      setupTray();
+      mainWindow.hide();
+      return;
+    }
+    if (response === 2) {
+      event.preventDefault();
+      return;
+    }
+
+    isQuitting = true;
+  });
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
@@ -323,7 +439,10 @@ ipcMain.handle('write-shell', (_, { tabId, data }) => {
 
   for (const ch of String(data)) {
     if (ch === '\r' || ch === '\n') {
-      if (entry.inputBuffer.trim().length > 0) entry.dirty = true;
+      if (entry.inputBuffer.trim().length > 0) {
+        entry.dirty = true;
+        rememberCommand(entry.cwd, entry.inputBuffer);
+      }
       entry.inputBuffer = '';
     } else if (ch === '\b' || ch === '\x7f') {
       entry.inputBuffer = entry.inputBuffer.slice(0, -1);
@@ -353,6 +472,13 @@ ipcMain.handle('resize-pty', (_, { tabId, cols, rows }) => {
 });
 
 ipcMain.handle('get-autocomplete-suggestions', (_, opts) => getAutocompleteSuggestions(opts || {}));
+
+ipcMain.handle('get-quick-commands', (_, cwd) => getQuickCommands(cwd));
+
+ipcMain.handle('remember-command', (_, { cwd, command }) => {
+  rememberCommand(cwd, command);
+  return getQuickCommands(cwd);
+});
 
 // ── Workspaces IPC ──
 
@@ -412,9 +538,12 @@ app.whenReady().then(() => {
   setupAutoUpdater();
   createWindow();
 });
-app.on('window-all-closed', () => {
+app.on('before-quit', () => {
+  isQuitting = true;
   Object.values(shellMap).forEach(({ proc }) => proc?.kill());
-  if (process.platform !== 'darwin') app.quit();
+});
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin' && isQuitting) app.quit();
 });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();

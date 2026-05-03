@@ -18,6 +18,8 @@ if (!window.electron) {
     runCommand: (opts) => window.require('electron').ipcRenderer.invoke('run-command', opts),
     resizePty: (opts) => window.require('electron').ipcRenderer.invoke('resize-pty', opts),
     getAutocompleteSuggestions: (opts) => window.require('electron').ipcRenderer.invoke('get-autocomplete-suggestions', opts),
+    getQuickCommands: (cwd) => window.require('electron').ipcRenderer.invoke('get-quick-commands', cwd),
+    rememberCommand: (opts) => window.require('electron').ipcRenderer.invoke('remember-command', opts),
     readClipboardText: () => window.require('electron').clipboard.readText(),
     hasClipboardImage: () => !window.require('electron').clipboard.readImage().isEmpty(),
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),
@@ -71,6 +73,11 @@ function AppContent() {
   const updateTabCwd = useCallback((id, cwd) => {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, cwd } : t));
   }, []);
+
+  const runQuickCommand = useCallback((command) => {
+    if (!activeTabId) return;
+    window.electron.writePty({ tabId: activeTabId, data: `${command}\r` });
+  }, [activeTabId]);
 
   const chooseWorkspaceFolder = useCallback(async () => {
     const dir = await window.electron.selectDirectory();
@@ -142,6 +149,7 @@ function AppContent() {
         shells={installedShells}
         activeTab={tabs.find(t => t.id === activeTabId)}
         onChooseFolder={chooseWorkspaceFolder}
+        onRunQuickCommand={runQuickCommand}
         onToggleSettings={() => setSettingsOpen(prev => !prev)}
       />
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>

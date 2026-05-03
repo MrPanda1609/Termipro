@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store/index.jsx';
 import { getThemeColors } from '../themes/index.jsx';
 
@@ -7,9 +7,11 @@ const DEFAULT_SHELLS = [
   { id: 'cmd', name: 'Command Prompt' },
 ];
 
-export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onToggleSettings }) {
+export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onRunQuickCommand, onToggleSettings }) {
   const { settings } = useStore();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickCommands, setQuickCommands] = useState({ folder: [], project: [], projectRoot: '' });
   const theme = getThemeColors(settings.colorTheme);
   const surface = soften(theme.background, 0.08);
   const surface2 = soften(theme.background, 0.14);
@@ -18,6 +20,16 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
   const createShell = (shell) => {
     setMenuOpen(false);
     onAdd(shell.id, shell.name);
+  };
+
+  useEffect(() => {
+    if (!quickOpen) return;
+    window.electron.getQuickCommands(activeTab?.cwd || settings.workingDirectory).then(setQuickCommands);
+  }, [activeTab?.cwd, quickOpen, settings.workingDirectory]);
+
+  const runQuickCommand = (command) => {
+    setQuickOpen(false);
+    onRunQuickCommand?.(command);
   };
 
   return (
@@ -131,6 +143,34 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
             </div>
           )}
         </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
+          <button className="titlebar-btn" onClick={() => setQuickOpen(v => !v)} style={quickButton(theme)} title="Run remembered command">Commands</button>
+          {quickOpen && (
+            <div style={{
+              position: 'absolute',
+              top: 34,
+              left: 0,
+              width: 360,
+              maxHeight: 430,
+              overflowY: 'auto',
+              padding: 8,
+              borderRadius: 9,
+              border: `1px solid ${border}`,
+              background: surface2,
+              boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+              zIndex: 220,
+            }}>
+              <QuickGroup title="This folder" commands={quickCommands.folder} onRun={runQuickCommand} theme={theme} />
+              <QuickGroup title={`Project${quickCommands.projectRoot ? `: ${shortFolderName(quickCommands.projectRoot)}` : ''}`} commands={quickCommands.project} onRun={runQuickCommand} theme={theme} />
+              {quickCommands.folder.length === 0 && quickCommands.project.length === 0 && (
+                <div style={{ color: theme.brightBlack, fontSize: 12, padding: 8 }}>
+                  Run commands in this folder and they will appear here.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' }}>
@@ -139,6 +179,41 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
         <button className="window-btn" onClick={() => window.electron.toggleMaximizeWindow()} title="Maximize" style={windowButton(theme)}>□</button>
         <button className="window-btn window-btn-close" onClick={() => window.electron.closeWindow()} title="Close" style={closeButton(theme)}>×</button>
       </div>
+    </div>
+  );
+}
+
+function QuickGroup({ title, commands, onRun, theme }) {
+  if (!commands?.length) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ color: theme.brightBlack, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', padding: '4px 6px' }}>{title}</div>
+      {commands.map(command => (
+        <button
+          key={`${title}-${command}`}
+          className="menu-item"
+          onClick={() => onRun(command)}
+          style={{
+            display: 'block',
+            width: '100%',
+            padding: '7px 9px',
+            textAlign: 'left',
+            color: theme.foreground,
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 7,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontFamily: 'Cascadia Code, Consolas, monospace',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={command}
+        >
+          {command}
+        </button>
+      ))}
     </div>
   );
 }
@@ -204,6 +279,21 @@ function dropButton(theme) {
     fontSize: 13,
     fontWeight: 700,
     lineHeight: 1,
+  };
+}
+
+function quickButton(theme) {
+  return {
+    height: 32,
+    padding: '0 11px',
+    color: theme.brightBlue || theme.blue,
+    background: 'rgba(88, 166, 255, 0.08)',
+    border: `1px solid rgba(88, 166, 255, 0.18)`,
+    borderRadius: 7,
+    cursor: 'pointer',
+    fontSize: 12,
+    fontWeight: 700,
+    marginLeft: 4,
   };
 }
 
