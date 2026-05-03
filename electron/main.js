@@ -148,14 +148,38 @@ function getCommandHistory() {
   return readJsonFile(COMMAND_HISTORY_FILE, { folders: {}, projects: {} });
 }
 
+function cleanCommand(command) {
+  const value = String(command || '')
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+    .trim();
+
+  if (!value || value.length > 300) return '';
+  if (/^[\[\]\\/BDoOiluma]+$/i.test(value)) return '';
+  if ((value.match(/[\[\]]/g) || []).length > 4) return '';
+  if (value.includes('\u001b') || value.includes('[0;')) return '';
+  return value;
+}
+
+function pruneCommandHistory(history) {
+  const next = { folders: {}, projects: {} };
+  for (const group of ['folders', 'projects']) {
+    for (const [key, commands] of Object.entries(history[group] || {})) {
+      const clean = [...new Set((commands || []).map(cleanCommand).filter(Boolean))].slice(0, 20);
+      if (clean.length) next[group][key] = clean;
+    }
+  }
+  return next;
+}
+
 function rememberCommand(cwd, command) {
-  const clean = String(command || '').trim();
+  const clean = cleanCommand(command);
   if (!clean || clean.length > 500) return;
 
   const dir = cwd || os.homedir();
   const folderKey = normalizeDirKey(dir);
   const projectKey = normalizeDirKey(findProjectRoot(dir));
-  const history = getCommandHistory();
+  const history = pruneCommandHistory(getCommandHistory());
 
   for (const [group, key] of [['folders', folderKey], ['projects', projectKey]]) {
     const previous = Array.isArray(history[group]?.[key]) ? history[group][key] : [];
@@ -168,7 +192,8 @@ function rememberCommand(cwd, command) {
 
 function getQuickCommands(cwd) {
   const dir = cwd || os.homedir();
-  const history = getCommandHistory();
+  const history = pruneCommandHistory(getCommandHistory());
+  writeJsonFile(COMMAND_HISTORY_FILE, history);
   const folderKey = normalizeDirKey(dir);
   const projectRoot = findProjectRoot(dir);
   const projectKey = normalizeDirKey(projectRoot);
@@ -220,6 +245,7 @@ function setupAutoUpdater() {
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoRunAppAfterInstall = true;
 
   autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => sendUpdateStatus({ state: 'available', version: info.version }));
@@ -230,17 +256,6 @@ function setupAutoUpdater() {
   }));
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdateStatus({ state: 'downloaded', version: info.version });
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      buttons: ['Restart now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Termipro update ready',
-      message: `Termipro ${info.version} has been downloaded.`,
-      detail: 'Restart Termipro to install the update.',
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall(false, true);
-    });
   });
   autoUpdater.on('error', (error) => sendUpdateStatus({ state: 'error', message: getUpdateErrorMessage(error) }));
 }
@@ -509,6 +524,11 @@ ipcMain.handle('check-for-updates', async () => {
     sendUpdateStatus({ state: 'error', message });
     return { skipped: false, error: message };
   }
+});
+
+ipcMain.handle('install-update-now', () => {
+  isQuitting = true;
+  autoUpdater.quitAndInstall(true, true);
 });
 
 // ── Window controls ──

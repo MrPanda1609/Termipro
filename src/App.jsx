@@ -32,6 +32,7 @@ if (!window.electron) {
     getWorkspaces: () => window.require('electron').ipcRenderer.invoke('get-workspaces'),
     saveWorkspaces: (ws) => window.require('electron').ipcRenderer.invoke('save-workspaces', ws),
     checkForUpdates: () => window.require('electron').ipcRenderer.invoke('check-for-updates'),
+    installUpdateNow: () => window.require('electron').ipcRenderer.invoke('install-update-now'),
     offUpdateStatus: (cb) => window.require('electron').ipcRenderer.removeListener('update-status', cb),
     offCloseRequest: (cb) => window.require('electron').ipcRenderer.removeListener('app-close-request', cb),
     onPtyData: (cb) => window.require('electron').ipcRenderer.on('shell-data', (_, d) => cb(d)),
@@ -86,6 +87,7 @@ function AppContent() {
   const [activeTabId, setActiveTabId] = useState(1);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dialog, setDialog] = useState(null);
+  const updatePromptedRef = useRef(false);
   const [nextTabId, setNextTabId] = useState(2);
   const settingsOpenRef = useRef(false);
   settingsOpenRef.current = settingsOpen;
@@ -200,6 +202,26 @@ function AppContent() {
     };
     window.electron.onCloseRequest?.(handler);
     return () => window.electron.offCloseRequest?.(handler);
+  }, [askDialog]);
+
+  useEffect(() => {
+    const handler = (status) => {
+      if (status?.state !== 'downloaded' || updatePromptedRef.current) return;
+      updatePromptedRef.current = true;
+      askDialog({
+        icon: '↑',
+        title: `Termipro ${status.version || ''} is ready`,
+        message: 'The update has been downloaded. Restart now to install silently and reopen Termipro automatically.',
+        actions: [
+          { id: 'later', label: 'Later' },
+          { id: 'restart', label: 'Restart now', primary: true },
+        ],
+      }).then((action) => {
+        if (action === 'restart') window.electron.installUpdateNow();
+      });
+    };
+    window.electron.onUpdateStatus?.(handler);
+    return () => window.electron.offUpdateStatus?.(handler);
   }, [askDialog]);
 
   // Keyboard shortcuts

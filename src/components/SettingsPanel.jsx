@@ -48,7 +48,7 @@ export default function SettingsPanel({ open, onClose }) {
         setUpdateStatus(`Downloading update${Number.isFinite(status.percent) ? ` ${status.percent}%` : '...'}`);
       } else if (status.state === 'downloaded') {
         setCheckingUpdate(false);
-        setUpdateStatus(`Update ${status.version || ''} is ready. Choose Restart now to install.`);
+        setUpdateStatus(`Update ${status.version || ''} is ready. Restart from the update popup to install silently.`);
       } else if (status.state === 'none') {
         setCheckingUpdate(false);
         setUpdateStatus('Termipro is already up to date.');
