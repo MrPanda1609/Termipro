@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useState } from 'react';
 import { useStore } from '../store/index.jsx';
 import { COLOR_THEMES, getThemePreviewColors } from '../themes/index.jsx';
 import logoUrl from '../../pic/logo.png';
@@ -25,7 +25,7 @@ function getShortUpdateError(error) {
   return message.split('\n')[0].slice(0, 220);
 }
 
-export default function SettingsPanel({ open, onClose }) {
+const SettingsPanel = forwardRef(function SettingsPanel({ open, onClose }, ref) {
   const { settings, updateSettings, updateNested, installedShells } = useStore();
   const [browseHover, setBrowseHover] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -79,6 +79,7 @@ export default function SettingsPanel({ open, onClose }) {
 
   return (
     <div
+      ref={ref}
       style={{
         position: 'fixed',
         top: 0,
@@ -306,7 +307,9 @@ export default function SettingsPanel({ open, onClose }) {
       </div>
     </div>
   );
-}
+});
+
+export default SettingsPanel;
 
 function Section({ title, children }) {
   return (

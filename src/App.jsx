@@ -90,6 +90,8 @@ function AppContent() {
   const updatePromptedRef = useRef(false);
   const [nextTabId, setNextTabId] = useState(2);
   const settingsOpenRef = useRef(false);
+  const settingsPanelRef = useRef(null);
+  const settingsButtonRef = useRef(null);
   settingsOpenRef.current = settingsOpen;
 
   const askDialog = useCallback((options) => new Promise((resolve) => {
@@ -205,6 +207,19 @@ function AppContent() {
   }, [askDialog]);
 
   useEffect(() => {
+    if (!settingsOpen) return;
+
+    const onPointerDown = (event) => {
+      if (settingsPanelRef.current?.contains(event.target)) return;
+      if (settingsButtonRef.current?.contains(event.target)) return;
+      setSettingsOpen(false);
+    };
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, [settingsOpen]);
+
+  useEffect(() => {
     const handler = (status) => {
       if (status?.state !== 'downloaded' || updatePromptedRef.current) return;
       updatePromptedRef.current = true;
@@ -268,6 +283,7 @@ function AppContent() {
         onChooseFolder={chooseWorkspaceFolder}
         onOpenFolder={openWorkspaceFolder}
         onRunQuickCommand={runQuickCommand}
+        settingsButtonRef={settingsButtonRef}
         onToggleSettings={() => setSettingsOpen(prev => !prev)}
       />
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
@@ -287,7 +303,7 @@ function AppContent() {
           </div>
         )}
       </div>
-      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel ref={settingsPanelRef} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ConfirmDialog dialog={dialog} onClose={closeDialog} />
     </div>
   );

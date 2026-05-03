@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store/index.jsx';
 import { getThemeColors } from '../themes/index.jsx';
 
@@ -7,13 +7,16 @@ const DEFAULT_SHELLS = [
   { id: 'cmd', name: 'Command Prompt' },
 ];
 
-export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onOpenFolder, onRunQuickCommand, onToggleSettings }) {
+export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onOpenFolder, onRunQuickCommand, settingsButtonRef, onToggleSettings }) {
   const { settings } = useStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [recentFolders, setRecentFolders] = useState([]);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickCommands, setQuickCommands] = useState({ folder: [], project: [], projectRoot: '' });
+  const folderRef = useRef(null);
+  const shellRef = useRef(null);
+  const quickRef = useRef(null);
   const theme = getThemeColors(settings.colorTheme);
   const surface = soften(theme.background, 0.08);
   const surface2 = soften(theme.background, 0.14);
@@ -34,6 +37,19 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
     window.electron.getRecentFolders().then(setRecentFolders);
   }, [folderOpen]);
 
+  useEffect(() => {
+    if (!folderOpen && !menuOpen && !quickOpen) return;
+
+    const onPointerDown = (event) => {
+      if (folderOpen && folderRef.current && !folderRef.current.contains(event.target)) setFolderOpen(false);
+      if (menuOpen && shellRef.current && !shellRef.current.contains(event.target)) setMenuOpen(false);
+      if (quickOpen && quickRef.current && !quickRef.current.contains(event.target)) setQuickOpen(false);
+    };
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  }, [folderOpen, menuOpen, quickOpen]);
+
   const runQuickCommand = (command) => {
     setQuickOpen(false);
     onRunQuickCommand?.(command);
@@ -52,7 +68,7 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
       userSelect: 'none',
     }}>
       <div style={{ display: 'flex', alignItems: 'end', gap: 4, minWidth: 0, paddingTop: 5, paddingLeft: 8 }}>
-        <div style={{ position: 'relative', WebkitAppRegion: 'no-drag' }}>
+        <div ref={folderRef} style={{ position: 'relative', WebkitAppRegion: 'no-drag' }}>
           <button
             className="titlebar-btn"
             onClick={() => setFolderOpen(v => !v)}
@@ -149,7 +165,7 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
           );
         })}
 
-        <div style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
+        <div ref={shellRef} style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
           <button className="titlebar-btn" onClick={() => onAdd('PowerShell', 'PowerShell')} style={addButton(theme)} title="New PowerShell tab (Ctrl+T)">+</button>
           <button className="titlebar-btn" onClick={() => setMenuOpen(v => !v)} style={dropButton(theme)} title="Choose terminal">▾</button>
           {menuOpen && (
@@ -192,7 +208,7 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
 
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
+      <div ref={quickRef} style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
         <button className="titlebar-btn" onClick={() => setQuickOpen(v => !v)} title="Remembered commands" style={iconButton(theme)}>⌘</button>
         {quickOpen && (
           <div style={{
@@ -218,7 +234,7 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
             )}
           </div>
         )}
-        <button className="titlebar-btn" onClick={onToggleSettings} title="Settings (Ctrl+,)" style={iconButton(theme)}>⚙</button>
+        <button ref={settingsButtonRef} className="titlebar-btn" onClick={onToggleSettings} title="Settings (Ctrl+,)" style={iconButton(theme)}>⚙</button>
         <button className="window-btn" onClick={() => window.electron.minimizeWindow()} title="Minimize" style={windowButton(theme)}>─</button>
         <button className="window-btn" onClick={() => window.electron.toggleMaximizeWindow()} title="Maximize" style={windowButton(theme)}>□</button>
         <button className="window-btn window-btn-close" onClick={() => window.electron.closeWindow()} title="Close" style={closeButton(theme)}>×</button>
