@@ -44,6 +44,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   const theme = getThemeColors(settings.colorTheme);
   const [suggestions, setSuggestions] = useState([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const [suggestionPosition, setSuggestionPosition] = useState({ left: 12, top: 36 });
 
   settingsRef.current = settings;
   cwdRef.current = cwd;
@@ -61,6 +62,20 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     setSelectedSuggestion(0);
   };
 
+  const updateSuggestionPosition = () => {
+    const term = terminalRef.current;
+    const container = containerRef.current;
+    if (!term || !container) return;
+
+    const cell = term._core?._renderService?.dimensions?.css?.cell;
+    const cellWidth = cell?.width || Math.max(7, settingsRef.current.font.size * 0.6);
+    const cellHeight = cell?.height || Math.max(16, settingsRef.current.font.size * 1.35);
+    const left = 12 + Math.min(Math.max(0, container.clientWidth - 292), Math.max(0, term.buffer.active.cursorX * cellWidth));
+    const top = 8 + Math.min(Math.max(0, container.clientHeight - 220), Math.max(0, (term.buffer.active.cursorY + 1) * cellHeight + 4));
+
+    setSuggestionPosition({ left, top });
+  };
+
   const scheduleSuggestions = () => {
     clearTimeout(suggestionTimerRef.current);
     const input = getInputValue(inputRef.current);
@@ -72,6 +87,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     suggestionTimerRef.current = setTimeout(async () => {
       const items = await window.electron.getAutocompleteSuggestions?.({ input, cwd: cwdRef.current });
       if (inputRef.current !== input) return;
+      updateSuggestionPosition();
       suggestionsRef.current = items || [];
       selectedSuggestionRef.current = 0;
       setSuggestions(suggestionsRef.current);
@@ -332,8 +348,8 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         <div
           style={{
             position: 'absolute',
-            left: 12,
-            bottom: 12,
+            left: suggestionPosition.left,
+            top: suggestionPosition.top,
             minWidth: 260,
             maxWidth: 520,
             padding: 6,

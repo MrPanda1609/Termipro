@@ -9,6 +9,7 @@ const SETTINGS_DIR = path.join(app.getPath('userData'), 'Termipro');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'settings.json');
 const WORKSPACES_FILE = path.join(SETTINGS_DIR, 'workspaces.json');
 const COMMAND_HISTORY_FILE = path.join(SETTINGS_DIR, 'command-history.json');
+const RECENT_FOLDERS_FILE = path.join(SETTINGS_DIR, 'recent-folders.json');
 
 const DEFAULT_SETTINGS = {
   font: { family: 'Cascadia Code', size: 14 },
@@ -179,6 +180,19 @@ function getQuickCommands(cwd) {
   };
 }
 
+function getRecentFolders() {
+  return readJsonFile(RECENT_FOLDERS_FILE, []);
+}
+
+function rememberFolder(dir) {
+  if (!dir) return getRecentFolders();
+  const resolved = path.resolve(dir);
+  const recent = getRecentFolders().filter((item) => normalizeDirKey(item) !== normalizeDirKey(resolved));
+  const next = [resolved, ...recent].slice(0, 12);
+  writeJsonFile(RECENT_FOLDERS_FILE, next);
+  return next;
+}
+
 function sendUpdateStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('update-status', status);
@@ -278,29 +292,8 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.on('close', (event) => {
     if (isQuitting) return;
-
-    const { response } = dialog.showMessageBoxSync(mainWindow, {
-      type: 'question',
-      buttons: ['Hide to tray', 'Quit', 'Cancel'],
-      defaultId: 0,
-      cancelId: 2,
-      title: 'Close Termipro?',
-      message: 'Do you want to keep Termipro running in the background?',
-      detail: 'Hide to tray keeps all terminal processes running. Quit closes Termipro and stops terminal sessions.',
-    });
-
-    if (response === 0) {
-      event.preventDefault();
-      setupTray();
-      mainWindow.hide();
-      return;
-    }
-    if (response === 2) {
-      event.preventDefault();
-      return;
-    }
-
-    isQuitting = true;
+    event.preventDefault();
+    mainWindow.webContents.send('app-close-request');
   });
 
   if (process.env.NODE_ENV === 'development') {
@@ -333,8 +326,14 @@ ipcMain.handle('select-directory', async () => {
     properties: ['openDirectory'],
     defaultPath: loadSettings().workingDirectory,
   });
-  return r.canceled ? null : r.filePaths[0];
+  if (r.canceled) return null;
+  rememberFolder(r.filePaths[0]);
+  return r.filePaths[0];
 });
+
+ipcMain.handle('get-recent-folders', () => getRecentFolders());
+
+ipcMain.handle('remember-folder', (_, dir) => rememberFolder(dir));
 
 // ── Shell detection ──
 
@@ -530,6 +529,17 @@ ipcMain.handle('window-toggle-maximize', () => {
 
 ipcMain.handle('window-close', () => {
   mainWindow?.close();
+});
+
+ipcMain.handle('hide-to-tray', () => {
+  setupTray();
+  mainWindow?.hide();
+});
+
+ipcMain.handle('quit-app', () => {
+  isQuitting = true;
+  mainWindow?.close();
+  app.quit();
 });
 
 // ── Lifecycle ──

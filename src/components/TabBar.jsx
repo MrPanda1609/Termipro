@@ -7,9 +7,11 @@ const DEFAULT_SHELLS = [
   { id: 'cmd', name: 'Command Prompt' },
 ];
 
-export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onRunQuickCommand, onToggleSettings }) {
+export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClose, onAdd, shells = DEFAULT_SHELLS, onChooseFolder, onOpenFolder, onRunQuickCommand, onToggleSettings }) {
   const { settings } = useStore();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [recentFolders, setRecentFolders] = useState([]);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickCommands, setQuickCommands] = useState({ folder: [], project: [], projectRoot: '' });
   const theme = getThemeColors(settings.colorTheme);
@@ -26,6 +28,11 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
     if (!quickOpen) return;
     window.electron.getQuickCommands(activeTab?.cwd || settings.workingDirectory).then(setQuickCommands);
   }, [activeTab?.cwd, quickOpen, settings.workingDirectory]);
+
+  useEffect(() => {
+    if (!folderOpen) return;
+    window.electron.getRecentFolders().then(setRecentFolders);
+  }, [folderOpen]);
 
   const runQuickCommand = (command) => {
     setQuickOpen(false);
@@ -45,17 +52,56 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
       userSelect: 'none',
     }}>
       <div style={{ display: 'flex', alignItems: 'end', gap: 4, minWidth: 0, paddingTop: 5, paddingLeft: 8 }}>
-        <button
-          className="titlebar-btn"
-          onClick={onChooseFolder}
-          style={folderButton(theme)}
-          title={activeTab?.cwd ? `Change folder: ${activeTab.cwd}` : 'Choose working folder'}
-        >
-          <span style={{ fontSize: 15 }}>📁</span>
-          <span style={{ maxWidth: 86, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {shortFolderName(activeTab?.cwd) || 'Folder'}
-          </span>
-        </button>
+        <div style={{ position: 'relative', WebkitAppRegion: 'no-drag' }}>
+          <button
+            className="titlebar-btn"
+            onClick={() => setFolderOpen(v => !v)}
+            style={folderButton(theme)}
+            title={activeTab?.cwd ? `Change folder: ${activeTab.cwd}` : 'Choose working folder'}
+          >
+            <span style={{ fontSize: 15 }}>📁</span>
+            <span style={{ maxWidth: 86, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {shortFolderName(activeTab?.cwd) || 'Folder'}
+            </span>
+            <span style={{ color: theme.brightBlack, fontSize: 10 }}>▾</span>
+          </button>
+          {folderOpen && (
+            <div style={{
+              position: 'absolute',
+              top: 36,
+              left: 0,
+              width: 330,
+              maxHeight: 360,
+              overflowY: 'auto',
+              padding: 6,
+              borderRadius: 9,
+              border: `1px solid ${border}`,
+              background: surface2,
+              boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+              zIndex: 230,
+            }}>
+              {recentFolders.map(folder => (
+                <button
+                  key={folder}
+                  className="menu-item"
+                  onClick={() => { setFolderOpen(false); onOpenFolder?.(folder); }}
+                  style={folderMenuItem(theme)}
+                  title={folder}
+                >
+                  <span style={{ color: theme.brightBlue || theme.blue, marginRight: 8 }}>●</span>{folder}
+                </button>
+              ))}
+              {recentFolders.length > 0 && <div style={{ height: 1, background: border, margin: '6px 2px' }} />}
+              <button
+                className="menu-item"
+                onClick={() => { setFolderOpen(false); onChooseFolder?.(); }}
+                style={folderMenuItem(theme)}
+              >
+                Choose...
+              </button>
+            </div>
+          )}
+        </div>
 
         {tabs.map(tab => {
           const active = tab.id === activeTabId;
@@ -144,36 +190,34 @@ export default function TabBar({ tabs, activeTabId, activeTab, onActivate, onClo
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
-          <button className="titlebar-btn" onClick={() => setQuickOpen(v => !v)} style={quickButton(theme)} title="Run remembered command">Commands</button>
-          {quickOpen && (
-            <div style={{
-              position: 'absolute',
-              top: 34,
-              left: 0,
-              width: 360,
-              maxHeight: 430,
-              overflowY: 'auto',
-              padding: 8,
-              borderRadius: 9,
-              border: `1px solid ${border}`,
-              background: surface2,
-              boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
-              zIndex: 220,
-            }}>
-              <QuickGroup title="This folder" commands={quickCommands.folder} onRun={runQuickCommand} theme={theme} />
-              <QuickGroup title={`Project${quickCommands.projectRoot ? `: ${shortFolderName(quickCommands.projectRoot)}` : ''}`} commands={quickCommands.project} onRun={runQuickCommand} theme={theme} />
-              {quickCommands.folder.length === 0 && quickCommands.project.length === 0 && (
-                <div style={{ color: theme.brightBlack, fontSize: 12, padding: 8 }}>
-                  Run commands in this folder and they will appear here.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', WebkitAppRegion: 'no-drag' }}>
+      <div style={{ display: 'flex', alignItems: 'center', position: 'relative', WebkitAppRegion: 'no-drag' }}>
+        <button className="titlebar-btn" onClick={() => setQuickOpen(v => !v)} title="Remembered commands" style={iconButton(theme)}>⌘</button>
+        {quickOpen && (
+          <div style={{
+            position: 'absolute',
+            top: 42,
+            right: 144,
+            width: 360,
+            maxHeight: 430,
+            overflowY: 'auto',
+            padding: 8,
+            borderRadius: 9,
+            border: `1px solid ${border}`,
+            background: surface2,
+            boxShadow: '0 14px 40px rgba(0,0,0,0.35)',
+            zIndex: 220,
+          }}>
+            <QuickGroup title="This folder" commands={quickCommands.folder} onRun={runQuickCommand} theme={theme} />
+            <QuickGroup title={`Project${quickCommands.projectRoot ? `: ${shortFolderName(quickCommands.projectRoot)}` : ''}`} commands={quickCommands.project} onRun={runQuickCommand} theme={theme} />
+            {quickCommands.folder.length === 0 && quickCommands.project.length === 0 && (
+              <div style={{ color: theme.brightBlack, fontSize: 12, padding: 8 }}>
+                Run commands in this folder and they will appear here.
+              </div>
+            )}
+          </div>
+        )}
         <button className="titlebar-btn" onClick={onToggleSettings} title="Settings (Ctrl+,)" style={iconButton(theme)}>⚙</button>
         <button className="window-btn" onClick={() => window.electron.minimizeWindow()} title="Minimize" style={windowButton(theme)}>─</button>
         <button className="window-btn" onClick={() => window.electron.toggleMaximizeWindow()} title="Maximize" style={windowButton(theme)}>□</button>
@@ -266,6 +310,24 @@ function folderButton(theme) {
   };
 }
 
+function folderMenuItem(theme) {
+  return {
+    display: 'block',
+    width: '100%',
+    padding: '8px 10px',
+    textAlign: 'left',
+    color: theme.foreground,
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 7,
+    cursor: 'pointer',
+    fontSize: 12,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  };
+}
+
 function dropButton(theme) {
   return {
     width: 26,
@@ -279,21 +341,6 @@ function dropButton(theme) {
     fontSize: 13,
     fontWeight: 700,
     lineHeight: 1,
-  };
-}
-
-function quickButton(theme) {
-  return {
-    height: 32,
-    padding: '0 11px',
-    color: theme.brightBlue || theme.blue,
-    background: 'rgba(88, 166, 255, 0.08)',
-    border: `1px solid rgba(88, 166, 255, 0.18)`,
-    borderRadius: 7,
-    cursor: 'pointer',
-    fontSize: 12,
-    fontWeight: 700,
-    marginLeft: 4,
   };
 }
 

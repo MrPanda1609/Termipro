@@ -20,20 +20,64 @@ if (!window.electron) {
     getAutocompleteSuggestions: (opts) => window.require('electron').ipcRenderer.invoke('get-autocomplete-suggestions', opts),
     getQuickCommands: (cwd) => window.require('electron').ipcRenderer.invoke('get-quick-commands', cwd),
     rememberCommand: (opts) => window.require('electron').ipcRenderer.invoke('remember-command', opts),
+    getRecentFolders: () => window.require('electron').ipcRenderer.invoke('get-recent-folders'),
+    rememberFolder: (dir) => window.require('electron').ipcRenderer.invoke('remember-folder', dir),
     readClipboardText: () => window.require('electron').clipboard.readText(),
     hasClipboardImage: () => !window.require('electron').clipboard.readImage().isEmpty(),
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),
     toggleMaximizeWindow: () => window.require('electron').ipcRenderer.invoke('window-toggle-maximize'),
     closeWindow: () => window.require('electron').ipcRenderer.invoke('window-close'),
+    hideToTray: () => window.require('electron').ipcRenderer.invoke('hide-to-tray'),
+    quitApp: () => window.require('electron').ipcRenderer.invoke('quit-app'),
     getWorkspaces: () => window.require('electron').ipcRenderer.invoke('get-workspaces'),
     saveWorkspaces: (ws) => window.require('electron').ipcRenderer.invoke('save-workspaces', ws),
     checkForUpdates: () => window.require('electron').ipcRenderer.invoke('check-for-updates'),
     offUpdateStatus: (cb) => window.require('electron').ipcRenderer.removeListener('update-status', cb),
+    offCloseRequest: (cb) => window.require('electron').ipcRenderer.removeListener('app-close-request', cb),
     onPtyData: (cb) => window.require('electron').ipcRenderer.on('shell-data', (_, d) => cb(d)),
     onShellClear: (cb) => window.require('electron').ipcRenderer.on('shell-clear', (_, d) => cb(d)),
     onPtyExit: (cb) => window.require('electron').ipcRenderer.on('shell-exit', (_, d) => cb(d)),
     onUpdateStatus: (cb) => window.require('electron').ipcRenderer.on('update-status', (_, d) => cb(d)),
+    onCloseRequest: (cb) => window.require('electron').ipcRenderer.on('app-close-request', cb),
   };
+}
+
+function ConfirmDialog({ dialog, onClose }) {
+  if (!dialog) return null;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(1, 4, 9, 0.62)', backdropFilter: 'blur(8px)' }}>
+      <div style={{ width: 430, padding: 20, borderRadius: 16, border: '1px solid rgba(88, 166, 255, 0.22)', background: 'linear-gradient(180deg, #161b22, #0d1117)', boxShadow: '0 24px 70px rgba(0,0,0,0.55)' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <div style={{ width: 38, height: 38, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(88,166,255,0.14)', color: '#58a6ff', fontSize: 20 }}>{dialog.icon || '?'}</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: '#f0f6fc', fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{dialog.title}</div>
+            <div style={{ color: '#8b949e', fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{dialog.message}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
+          {dialog.actions.map((action) => (
+            <button
+              key={action.id}
+              onClick={() => onClose(action.id)}
+              style={{
+                padding: '8px 13px',
+                borderRadius: 9,
+                border: action.primary ? '1px solid #2ea043' : '1px solid #30363d',
+                background: action.primary ? '#238636' : '#161b22',
+                color: action.danger ? '#ff7b72' : '#f0f6fc',
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AppContent() {
@@ -41,9 +85,21 @@ function AppContent() {
   const [tabs, setTabs] = useState([{ id: 1, title: 'PowerShell', cwd: null, shell: 'PowerShell', sessionKey: 0 }]);
   const [activeTabId, setActiveTabId] = useState(1);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dialog, setDialog] = useState(null);
   const [nextTabId, setNextTabId] = useState(2);
   const settingsOpenRef = useRef(false);
   settingsOpenRef.current = settingsOpen;
+
+  const askDialog = useCallback((options) => new Promise((resolve) => {
+    setDialog({ ...options, resolve });
+  }), []);
+
+  const closeDialog = useCallback((result) => {
+    setDialog(current => {
+      current?.resolve?.(result);
+      return null;
+    });
+  }, []);
 
   const createTab = useCallback((shell = 'PowerShell', title = 'PowerShell', cwd = null) => {
     const id = nextTabId;
@@ -56,8 +112,16 @@ function AppContent() {
     const tab = tabs.find(t => t.id === id);
     const running = await window.electron.isShellRunning(id);
     if (running) {
-      const ok = window.confirm(`Close "${tab?.title || 'terminal'}"?\n\nA shell/process is still running in this tab.`);
-      if (!ok) return;
+      const action = await askDialog({
+        icon: '×',
+        title: `Close ${tab?.title || 'terminal'}?`,
+        message: 'A shell/process is still running in this tab. Closing it will stop that terminal session.',
+        actions: [
+          { id: 'cancel', label: 'Cancel' },
+          { id: 'close', label: 'Close tab', danger: true, primary: true },
+        ],
+      });
+      if (action !== 'close') return;
       await window.electron.killShell(id);
     }
 
@@ -68,7 +132,7 @@ function AppContent() {
       }
       return next;
     });
-  }, [activeTabId, tabs]);
+  }, [activeTabId, askDialog, tabs]);
 
   const updateTabCwd = useCallback((id, cwd) => {
     setTabs(prev => prev.map(t => t.id === id ? { ...t, cwd } : t));
@@ -79,11 +143,11 @@ function AppContent() {
     window.electron.writePty({ tabId: activeTabId, data: `${command}\r` });
   }, [activeTabId]);
 
-  const chooseWorkspaceFolder = useCallback(async () => {
-    const dir = await window.electron.selectDirectory();
+  const openWorkspaceFolder = useCallback(async (dir) => {
     if (!dir) return;
 
     await updateSettings({ workingDirectory: dir });
+    await window.electron.rememberFolder(dir);
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     if (!activeTab) {
@@ -93,10 +157,16 @@ function AppContent() {
 
     const running = await window.electron.isShellRunning(activeTab.id);
     if (running) {
-      const openNew = window.confirm(
-        `Open selected folder in a new tab?\n\nThe current tab has an active shell/process, so Termipro will not change its working directory in-place.`
-      );
-      if (openNew) createTab(activeTab.shell || 'PowerShell', activeTab.title || 'PowerShell', dir);
+      const action = await askDialog({
+        icon: '↗',
+        title: 'Open folder in new tab?',
+        message: 'The current tab has an active shell/process, so Termipro will not change its working directory in-place.',
+        actions: [
+          { id: 'cancel', label: 'Cancel' },
+          { id: 'new-tab', label: 'Open new tab', primary: true },
+        ],
+      });
+      if (action === 'new-tab') createTab(activeTab.shell || 'PowerShell', activeTab.title || 'PowerShell', dir);
       return;
     }
 
@@ -105,7 +175,32 @@ function AppContent() {
       ? { ...tab, cwd: dir, sessionKey: (tab.sessionKey || 0) + 1 }
       : tab
     ));
-  }, [activeTabId, createTab, tabs, updateSettings]);
+  }, [activeTabId, askDialog, createTab, tabs, updateSettings]);
+
+  const chooseWorkspaceFolder = useCallback(async () => {
+    const dir = await window.electron.selectDirectory();
+    if (dir) openWorkspaceFolder(dir);
+  }, [openWorkspaceFolder]);
+
+  useEffect(() => {
+    const handler = () => {
+      askDialog({
+        icon: '▣',
+        title: 'Close Termipro?',
+        message: 'Hide to tray keeps all terminal processes running. Quit closes Termipro and stops terminal sessions.',
+        actions: [
+          { id: 'cancel', label: 'Cancel' },
+          { id: 'quit', label: 'Quit', danger: true },
+          { id: 'hide', label: 'Hide to tray', primary: true },
+        ],
+      }).then((action) => {
+        if (action === 'hide') window.electron.hideToTray();
+        if (action === 'quit') window.electron.quitApp();
+      });
+    };
+    window.electron.onCloseRequest?.(handler);
+    return () => window.electron.offCloseRequest?.(handler);
+  }, [askDialog]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -149,6 +244,7 @@ function AppContent() {
         shells={installedShells}
         activeTab={tabs.find(t => t.id === activeTabId)}
         onChooseFolder={chooseWorkspaceFolder}
+        onOpenFolder={openWorkspaceFolder}
         onRunQuickCommand={runQuickCommand}
         onToggleSettings={() => setSettingsOpen(prev => !prev)}
       />
@@ -170,6 +266,7 @@ function AppContent() {
         )}
       </div>
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ConfirmDialog dialog={dialog} onClose={closeDialog} />
     </div>
   );
 }
