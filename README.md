@@ -5,7 +5,7 @@
 <h1 align="center">Termipro</h1>
 
 <p align="center">
-  A polished Windows terminal built for AI coding workflows.
+  A modern Windows terminal for AI coding sessions, project workflows, and fast command recall.
 </p>
 
 <p align="center">
@@ -18,51 +18,92 @@
 <p align="center">
   <a href="#download">Download</a>
   · <a href="#features">Features</a>
-  · <a href="#demo">Demo</a>
+  · <a href="#why-termipro">Why Termipro</a>
+  · <a href="#keyboard-shortcuts">Shortcuts</a>
   · <a href="#development">Development</a>
   · <a href="#releases--auto-update">Releases</a>
 </p>
 
 ---
 
-## Overview
+## Why Termipro
 
-Termipro is a desktop terminal for Windows that focuses on AI coding sessions: fast project switching, remembered commands, clean multi-tab shell access, automatic updates, and a polished UI around `xterm.js` + `node-pty`.
+Termipro is a desktop terminal for Windows that focuses on the way developers use AI coding CLIs every day: switching projects, repeating setup commands, navigating folders, keeping long-running processes alive, and staying updated without manually reinstalling.
 
-It is designed for developers who frequently work with AI coding CLIs, PowerShell, Git, Node.js, Bun, WSL, and project-specific workflows.
+It combines an Electron desktop shell, a React UI, `xterm.js`, and `node-pty` to provide a native-feeling terminal with project-aware productivity features.
 
-## Demo
+<table>
+  <tr>
+    <td><strong>Project-first</strong></td>
+    <td>Recent folders, project detection, and remembered commands help you return to work quickly.</td>
+  </tr>
+  <tr>
+    <td><strong>AI CLI friendly</strong></td>
+    <td>Optimized around long-running AI coding sessions, clipboard behavior, and multi-tab workflows.</td>
+  </tr>
+  <tr>
+    <td><strong>Desktop polished</strong></td>
+    <td>Installer, shortcuts, tray mode, custom dialogs, silent updates, and a clean titlebar.</td>
+  </tr>
+</table>
 
-GIFs are supported in GitHub README files. Add your recording here:
+## Highlights
 
-```text
-docs/assets/demo.gif
+<table>
+  <tr>
+    <td width="50%">
+      <h3>Fast project switching</h3>
+      <p>Open recent folders from the titlebar, or choose a new workspace when needed.</p>
+    </td>
+    <td width="50%">
+      <h3>Remembered commands</h3>
+      <p>Termipro remembers commands per folder and per detected project so repetitive commands are one click away.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>Smart suggestions</h3>
+      <p>Autocomplete common commands and folder targets for <code>cd</code>, selectable by mouse, arrows, Tab, or Enter.</p>
+    </td>
+    <td width="50%">
+      <h3>Stay running in tray</h3>
+      <p>Hide Termipro to the system tray and keep active terminal processes running in the background.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <h3>Automatic updates</h3>
+      <p>Checks GitHub Releases, downloads updates, and installs silently after restart.</p>
+    </td>
+    <td width="50%">
+      <h3>Clean terminal UI</h3>
+      <p>Multi-tab layout, polished settings, custom dialogs, themes, opacity, and cursor options.</p>
+    </td>
+  </tr>
+</table>
+
+## Screenshots
+
+Screenshots are optional. If you add them later, place them in `docs/assets/` and embed them here.
+
+```md
+![Terminal](docs/assets/terminal.png)
+![Settings](docs/assets/settings.png)
+![Quick commands](docs/assets/quick-commands.png)
 ```
-
-Then uncomment this line:
-
-<!-- <p align="center"><img src="docs/assets/demo.gif" alt="Termipro demo" width="900" /></p> -->
-
-Recommended recording tools:
-
-- ScreenToGif
-- ShareX
-- OBS Studio, exported to GIF or MP4
-
-For best GitHub performance, keep the GIF under 10 MB.
 
 ## Features
 
-### Terminal experience
+### Terminal
 
 - Multi-tab terminal UI.
 - PowerShell, Command Prompt, Git Bash, and WSL detection.
 - `xterm.js` rendering with resize support through `node-pty`.
 - Colorful project prompt showing folder, app name, and version.
 - Theme, font, cursor, opacity, and scrollback settings.
-- Clipboard-aware paste behavior for AI coding CLIs.
+- Clipboard-aware paste behavior for AI coding tools.
 
-### AI coding workflow
+### Workflow
 
 - Fast working-folder switcher.
 - Recent folders dropdown with a `Choose...` fallback.
@@ -71,7 +112,7 @@ For best GitHub performance, keep the GIF under 10 MB.
 - Autocomplete for common commands and `cd` directory targets.
 - Click, arrow keys, `Tab`, or `Enter` to accept suggestions.
 
-### Desktop app polish
+### Desktop
 
 - Windows installer with Desktop and Start Menu shortcuts.
 - Auto-update through GitHub Releases.
@@ -82,37 +123,21 @@ For best GitHub performance, keep the GIF under 10 MB.
 
 ## Download
 
-1. Open the latest release:
-   <br />
-   https://github.com/MrPanda1609/Termipro/releases/latest
-2. Download the installer:
-   ```text
-   Termipro-Setup-x.y.z.exe
-   ```
-3. Run the installer.
-4. Launch Termipro from the Desktop shortcut or Start Menu.
+<p>
+  <a href="https://github.com/MrPanda1609/Termipro/releases/latest"><strong>Download the latest Windows installer</strong></a>
+</p>
+
+Download this file from the latest release:
+
+```text
+Termipro-Setup-x.y.z.exe
+```
+
+Run the installer, then launch Termipro from the Desktop shortcut or Start Menu.
 
 Termipro checks for updates when it starts. If a new version is available, it downloads the update and asks you to restart. The update installs silently and reopens Termipro automatically.
 
-## Screenshots
-
-Add screenshots to `docs/assets/` and update these paths:
-
-```md
-![Terminal](docs/assets/terminal.png)
-![Settings](docs/assets/settings.png)
-![Quick commands](docs/assets/quick-commands.png)
-```
-
-Suggested screenshots:
-
-- Terminal with prompt and AI coding CLI.
-- Recent folder dropdown.
-- Quick commands menu.
-- Settings panel.
-- Update-ready modal.
-
-## Keyboard and mouse notes
+## Keyboard shortcuts
 
 - `Ctrl + T`: new terminal tab.
 - `Ctrl + W`: close current tab when multiple tabs exist.
@@ -121,7 +146,9 @@ Suggested screenshots:
 - `ArrowUp` / `ArrowDown`: move through autocomplete suggestions.
 - `Esc`: close Settings or autocomplete suggestions.
 
-Some AI CLI tools implement their own mouse selection/copy behavior. If selection behaves differently inside a specific CLI, it is usually controlled by that CLI's mouse mode rather than the terminal renderer.
+## AI CLI mouse behavior
+
+Some AI CLI tools implement their own mouse selection or copy behavior. If text selection behaves differently inside a specific CLI, it is usually controlled by that CLI's mouse mode rather than Termipro's terminal renderer.
 
 ## Project detection
 
