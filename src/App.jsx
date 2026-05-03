@@ -31,6 +31,10 @@ if (!window.electron) {
       clipboard.writeImage(image);
       return true;
     },
+    getPathForFile: (file) => {
+      const { webUtils } = window.require('electron');
+      return webUtils?.getPathForFile?.(file) || file?.path || file?.name || '';
+    },
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),
     toggleMaximizeWindow: () => window.require('electron').ipcRenderer.invoke('window-toggle-maximize'),
     closeWindow: () => window.require('electron').ipcRenderer.invoke('window-close'),

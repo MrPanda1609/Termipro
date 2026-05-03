@@ -27,7 +27,12 @@ function getInputValue(input) {
 }
 
 function isImageFile(file) {
-  return file?.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(file?.path || file?.name || '');
+  const filePath = getFilePath(file);
+  return file?.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|ico)$/i.test(filePath || file?.name || '');
+}
+
+function getFilePath(file) {
+  return window.electron?.getPathForFile?.(file) || file?.path || file?.webkitRelativePath || file?.name || '';
 }
 
 function quotePath(filePath) {
@@ -142,11 +147,19 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   };
 
   const sendFilePathsToTerminal = (files) => {
-    const paths = files.map(file => file.path).filter(Boolean).map(quotePath).join(' ');
+    const paths = files.map(getFilePath).filter(Boolean).map(quotePath).join(' ');
     if (!paths) return;
     inputRef.current += paths;
     window.electron.writePty({ tabId: tabIdRef.current, data: paths });
     terminalRef.current?.focus();
+  };
+
+  const handleDroppedFiles = (files) => {
+    if (!active || !files?.length) return;
+    const image = files.find(isImageFile);
+    const imagePath = getFilePath(image);
+    if (imagePath && sendImageToCli(imagePath)) return;
+    sendFilePathsToTerminal(files);
   };
 
   useEffect(() => {
@@ -303,19 +316,18 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
 
     const onDragOver = (event) => {
       event.preventDefault();
+      event.stopPropagation();
       event.dataTransfer.dropEffect = 'copy';
     };
     const onDrop = (event) => {
       event.preventDefault();
-      const files = Array.from(event.dataTransfer.files || []);
-      if (files.length === 0) return;
-
-      const image = files.find(isImageFile);
-      if (image?.path && sendImageToCli(image.path)) return;
-      sendFilePathsToTerminal(files);
+      event.stopPropagation();
+      handleDroppedFiles(Array.from(event.dataTransfer.files || []));
     };
     containerRef.current.addEventListener('dragover', onDragOver);
     containerRef.current.addEventListener('drop', onDrop);
+    window.addEventListener('dragover', onDragOver, true);
+    window.addEventListener('drop', onDrop, true);
 
     lastSizeRef.current = { cols: term.cols, rows: term.rows };
     window.electron.createPty({ cwd, tabId, shell, cols: term.cols, rows: term.rows }).then(async (result) => {
@@ -336,6 +348,8 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
       containerRef.current?.removeEventListener('click', focus);
       containerRef.current?.removeEventListener('dragover', onDragOver);
       containerRef.current?.removeEventListener('drop', onDrop);
+      window.removeEventListener('dragover', onDragOver, true);
+      window.removeEventListener('drop', onDrop, true);
       dataDisposable?.dispose?.();
       ro.disconnect();
       term.dispose();
