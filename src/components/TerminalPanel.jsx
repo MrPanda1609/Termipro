@@ -60,6 +60,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   const [suggestions, setSuggestions] = useState([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const [suggestionPosition, setSuggestionPosition] = useState({ left: 12, top: 36 });
+  const [contextMenu, setContextMenu] = useState(null);
 
   settingsRef.current = settings;
   cwdRef.current = cwd;
@@ -162,6 +163,28 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     sendFilePathsToTerminal(files);
   };
 
+  const copySelection = () => {
+    const term = terminalRef.current;
+    if (!term) return false;
+    const sel = term.getSelection();
+    if (!sel) return false;
+    window.require('electron').clipboard.writeText(sel);
+    term.clearSelection();
+    return true;
+  };
+
+  const pasteFromClipboard = () => {
+    const term = terminalRef.current;
+    if (!term) return;
+    const text = window.electron.readClipboardText?.() || '';
+    if (text.length > 0) {
+      term.paste(text);
+    } else if (window.electron.hasClipboardImage?.()) {
+      window.electron.writePty({ tabId: tabIdRef.current, data: '\x16' });
+    }
+    term.focus();
+  };
+
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
 
@@ -262,6 +285,20 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
       return true;
     });
 
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true;
+      if (event.key.toLowerCase() === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
+        const sel = term.getSelection();
+        if (sel) {
+          window.require('electron').clipboard.writeText(sel);
+          term.clearSelection();
+          event.preventDefault();
+          return false;
+        }
+      }
+      return true;
+    });
+
     const dataDisposable = term.onData((data) => {
       trackInput(data);
       window.electron.writePty({ tabId: tabIdRef.current, data });
@@ -314,6 +351,13 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     containerRef.current.addEventListener('mousedown', onScrollbarMouseDown, true);
     containerRef.current.addEventListener('click', focus);
 
+    const onContextMenu = (event) => {
+      event.preventDefault();
+      const hasSel = Boolean(term.getSelection());
+      setContextMenu({ x: event.clientX, y: event.clientY, hasSel });
+    };
+    containerRef.current.addEventListener('contextmenu', onContextMenu);
+
     const onDragOver = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -346,6 +390,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
       containerRef.current?.removeEventListener('mousedown', focus);
       containerRef.current?.removeEventListener('mousedown', onScrollbarMouseDown, true);
       containerRef.current?.removeEventListener('click', focus);
+      containerRef.current?.removeEventListener('contextmenu', onContextMenu);
       containerRef.current?.removeEventListener('dragover', onDragOver);
       containerRef.current?.removeEventListener('drop', onDrop);
       window.removeEventListener('dragover', onDragOver, true);
@@ -446,6 +491,53 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
           ))}
         </div>
       )}
+      {active && contextMenu && (
+        <div
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            zIndex: 500,
+            minWidth: 160,
+            padding: 6,
+            borderRadius: 9,
+            border: `1px solid ${theme.brightBlack}`,
+            background: 'rgba(22, 27, 34, 0.98)',
+            boxShadow: '0 14px 34px rgba(0,0,0,0.45)',
+          }}
+          onMouseLeave={() => setContextMenu(null)}
+        >
+          {contextMenu.hasSel && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); copySelection(); setContextMenu(null); }}
+              style={ctxItemStyle(theme)}
+            >
+              Copy
+            </button>
+          )}
+          <button
+            onMouseDown={(e) => { e.preventDefault(); pasteFromClipboard(); setContextMenu(null); }}
+            style={ctxItemStyle(theme)}
+          >
+            Paste
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+function ctxItemStyle(theme) {
+  return {
+    display: 'block',
+    width: '100%',
+    padding: '8px 12px',
+    textAlign: 'left',
+    color: theme.foreground,
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 7,
+    cursor: 'pointer',
+    fontSize: 13,
+  };
 }
