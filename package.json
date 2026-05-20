@@ -1,6 +1,6 @@
 {
   "name": "termipro",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Modern terminal for AI coding",
   "main": "dist-electron/main.js",
   "scripts": {

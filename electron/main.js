@@ -422,6 +422,10 @@ ipcMain.handle('create-shell', (_, { cwd, cols, rows, tabId, shell }) => {
       rows: rows || 30,
       cwd: dir,
       env: process.env,
+      // conpty handles modern escape sequences (alt-screen, mouse, DECSCUSR)
+      // that AI CLIs use for option pickers. The default already picks conpty
+      // on Win10+; we set it explicitly so the choice is obvious in logs.
+      useConpty: true,
     });
 
     shellMap[tabId] = { proc, cwd: dir, inputBuffer: '', dirty: false };
@@ -451,17 +455,24 @@ ipcMain.handle('write-shell', (_, { tabId, data }) => {
   const entry = shellMap[tabId];
   if (!entry?.proc) return;
 
-  for (const ch of String(data)) {
-    if (ch === '\r' || ch === '\n') {
-      if (entry.inputBuffer.trim().length > 0) {
-        entry.dirty = true;
-        rememberCommand(entry.cwd, entry.inputBuffer);
+  const str = String(data);
+  // Don't try to harvest "commands" from raw escape sequences (arrow keys,
+  // function keys, bracketed paste markers). These are how users navigate
+  // TUI option pickers; treating them as input pollutes command history and
+  // tricks isShellRunning into thinking the pane is busy.
+  if (str.charCodeAt(0) !== 0x1b) {
+    for (const ch of str) {
+      if (ch === '\r' || ch === '\n') {
+        if (entry.inputBuffer.trim().length > 0) {
+          entry.dirty = true;
+          rememberCommand(entry.cwd, entry.inputBuffer);
+        }
+        entry.inputBuffer = '';
+      } else if (ch === '\b' || ch === '\x7f') {
+        entry.inputBuffer = entry.inputBuffer.slice(0, -1);
+      } else if (ch >= ' ' && ch !== '\x7f') {
+        entry.inputBuffer += ch;
       }
-      entry.inputBuffer = '';
-    } else if (ch === '\b' || ch === '\x7f') {
-      entry.inputBuffer = entry.inputBuffer.slice(0, -1);
-    } else if (ch >= ' ' && ch !== '\x7f') {
-      entry.inputBuffer += ch;
     }
   }
 

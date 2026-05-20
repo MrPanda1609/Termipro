@@ -6,7 +6,18 @@ import 'xterm/css/xterm.css';
 import { useStore } from '../store/index.jsx';
 import { getThemeColors } from '../themes/index.jsx';
 
-function enforceCursorPreferences(data, settings) {
+// Sequences that toggle the alternate screen buffer. CLIs like Claude Code,
+// Augment, Luma enter this buffer to draw full-screen pickers / option menus.
+// While the alt buffer is active we must stop rewriting CSI sequences and
+// stop popping Termipro's own autocomplete, otherwise the menu gets corrupted.
+const ALT_ENTER_RE = /\x1b\[\?(?:1049|1047|47)h/;
+const ALT_EXIT_RE = /\x1b\[\?(?:1049|1047|47)l/;
+
+function enforceCursorPreferences(data, settings, isAltScreen) {
+  // Never overwrite cursor shape while a TUI owns the screen — option pickers
+  // pick their own cursor (or hide it) and rewriting DECSCUSR makes the
+  // selection caret flicker / jump rows.
+  if (isAltScreen) return data;
   if (!settings.cursor.blink) return data;
 
   const style = settings.cursor.style === 'underline'
@@ -16,10 +27,22 @@ function enforceCursorPreferences(data, settings) {
       : '1';
 
   // DECSCUSR: 0/1 blinking block, 2 steady block, 3 blinking underline,
-  // 4 steady underline, 5 blinking bar, 6 steady bar. Luma currently emits
-  // steady block (\x1b[2 q); normalize cursor-shape requests to Termipro's
-  // blinking preference so the app setting remains authoritative.
+  // 4 steady underline, 5 blinking bar, 6 steady bar.
   return data.replace(/\x1b\[(?:\d+)? q/g, `\x1b[${style} q`);
+}
+
+function getWindowsPtyConfig() {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const os = window.require?.('os');
+    if (!os || os.platform() !== 'win32') return undefined;
+    const release = String(os.release() || '');
+    const parts = release.split('.').map((n) => parseInt(n, 10));
+    const buildNumber = Number.isFinite(parts[2]) ? parts[2] : 0;
+    return { backend: 'conpty', buildNumber };
+  } catch {
+    return undefined;
+  }
 }
 
 function getInputValue(input) {
@@ -54,6 +77,8 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   const suggestionsRef = useRef([]);
   const selectedSuggestionRef = useRef(0);
   const suggestionTimerRef = useRef(null);
+  // True while the PTY is drawing on the alternate screen buffer (TUI / menu).
+  const altScreenRef = useRef(false);
   const { settings } = useStore();
   const settingsRef = useRef(settings);
   const theme = getThemeColors(settings.colorTheme);
@@ -94,6 +119,11 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
 
   const scheduleSuggestions = () => {
     clearTimeout(suggestionTimerRef.current);
+    // Don't fight the CLI for screen space while it's drawing a menu.
+    if (altScreenRef.current) {
+      hideSuggestions();
+      return;
+    }
     const input = getInputValue(inputRef.current);
     if (!input.trim()) {
       hideSuggestions();
@@ -101,6 +131,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     }
 
     suggestionTimerRef.current = setTimeout(async () => {
+      if (altScreenRef.current) return;
       const items = await window.electron.getAutocompleteSuggestions?.({ input, cwd: cwdRef.current });
       if (inputRef.current !== input) return;
       updateSuggestionPosition();
@@ -112,7 +143,17 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   };
 
   const trackInput = (data) => {
-    for (const ch of String(data)) {
+    // While a TUI menu owns the buffer the user is navigating with arrows /
+    // escape sequences; treating those as shell input would both pollute the
+    // suggestion list and ghost-type into the picker.
+    if (altScreenRef.current) {
+      if (suggestionsRef.current.length) hideSuggestions();
+      return;
+    }
+    const str = String(data);
+    // Skip raw escape sequences (arrow keys, function keys, paste markers).
+    if (str.charCodeAt(0) === 0x1b) return;
+    for (const ch of str) {
       if (ch === '\r' || ch === '\n') {
         inputRef.current = '';
         hideSuggestions();
@@ -188,6 +229,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
   useEffect(() => {
     if (!containerRef.current || terminalRef.current) return;
 
+    const windowsPty = getWindowsPtyConfig();
     const term = new Terminal({
       fontFamily: settings.font.family,
       fontSize: settings.font.size,
@@ -201,7 +243,10 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
       fastScrollSensitivity: 5,
       macOptionIsMeta: true,
       rightClickSelectsWord: true,
-      windowsMode: true,
+      // On Win11 conpty (build >= 21376) xterm should keep reflow on so option
+      // pickers from Claude / Augment / Luma render their boxes correctly.
+      // The deprecated `windowsMode` flag forced reflow off and broke menus.
+      ...(windowsPty ? { windowsPty } : {}),
     });
 
     const fitAddon = new FitAddon();
@@ -215,8 +260,25 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    const updateAltScreen = () => {
+      const next = term.buffer.active.type === 'alternate';
+      if (next === altScreenRef.current) return;
+      altScreenRef.current = next;
+      if (next) {
+        // Entered TUI: drop our autocomplete and forget the half-typed input.
+        inputRef.current = '';
+        clearTimeout(suggestionTimerRef.current);
+        hideSuggestions();
+      }
+    };
+
     const onDataHandler = ({ tabId: tId, data }) => {
-      if (tId === tabIdRef.current) term.write(enforceCursorPreferences(data, settingsRef.current));
+      if (tId !== tabIdRef.current) return;
+      // Cheap pre-check before scanning the buffer state.
+      const mightToggleAlt = ALT_ENTER_RE.test(data) || ALT_EXIT_RE.test(data);
+      term.write(enforceCursorPreferences(data, settingsRef.current, altScreenRef.current), () => {
+        if (mightToggleAlt) updateAltScreen();
+      });
     };
     const onExitHandler = ({ tabId: tId, exitCode }) => {
       if (tId === tabIdRef.current) {
@@ -312,9 +374,12 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
           const nextSize = { cols: term.cols, rows: term.rows };
           lastSizeRef.current = nextSize;
           clearTimeout(resizeCommitRef.current);
+          // Short debounce so a CLI redrawing its popup picks up the new size
+          // immediately. The previous 400ms latency caused menus to wrap at
+          // the old width while the user was still resizing.
           resizeCommitRef.current = setTimeout(() => {
             window.electron.resizePty({ tabId: tabIdRef.current, cols: nextSize.cols, rows: nextSize.rows });
-          }, 400);
+          }, 60);
         }
       });
     };
@@ -430,7 +495,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         clearTimeout(resizeCommitRef.current);
         resizeCommitRef.current = setTimeout(() => {
           window.electron.resizePty({ tabId: tabIdRef.current, cols: nextSize.cols, rows: nextSize.rows });
-        }, 400);
+        }, 60);
       }
     });
   }, [active]);
