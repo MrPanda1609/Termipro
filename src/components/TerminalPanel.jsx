@@ -321,10 +321,10 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         }
       }
 
-      // Shift+Enter → soft newline for AI chat (Claude Code, Augment, Luma).
-      // Wrap the LF in a bracketed-paste envelope when the CLI has bracketed
-      // paste enabled so it knows this is a continuation rather than submit.
-      // Fall back to a bare LF for CLIs that don't enable bracketed paste.
+      // Shift+Enter: soft newline for AI chat. Bare LF works in Claude Code,
+      // Augment, Luma and falls back to a literal newline in normal shells.
+      // We must intercept before xterm translates Enter to CR, otherwise
+      // the CLI sees a submit instead of a continuation.
       if (event.key === 'Enter' && event.shiftKey) {
         const bracketed = term.modes?.bracketedPasteMode;
         const payload = bracketed ? '\x1b[200~\n\x1b[201~' : '\n';
@@ -333,32 +333,24 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         return false;
       }
 
-      // Ctrl+V. Decide based on what is actually on the clipboard:
-      //   text  → paste text (respect bracketed paste if the CLI enabled it)
-      //   image → forward ^V so the CLI grabs the bitmap from the OS clipboard
-      // The previous logic always sent ^V when an image was present, which made
-      // Luma attach a stale screenshot instead of pasting the copied text.
+      // Ctrl+V: clipboard-aware paste.
+      //   image-only -> forward ^V so the CLI reads the bitmap itself.
+      //   text       -> call term.paste so xterm wraps it in bracketed paste
+      //                 (or sends raw) according to the CLI's current mode.
+      // Returning false stops xterm from also sending a raw ^V byte, which
+      // was producing the "no image in clipboard" line in Claude before text.
       if (event.key.toLowerCase() === 'v' && event.ctrlKey && !event.shiftKey && !event.altKey) {
         const text = window.electron.readClipboardText?.() || '';
         if (text.length > 0) {
-          if (term.modes?.bracketedPasteMode) {
-            term.paste(text);
-          } else {
-            window.electron.writePty({ tabId: tabIdRef.current, data: text });
-          }
+          term.paste(text);
         } else if (window.electron.hasClipboardImage?.()) {
           window.electron.writePty({ tabId: tabIdRef.current, data: '\x16' });
         }
-
         event.preventDefault();
         return false;
       }
 
-      return true;
-    });
-
-    term.attachCustomKeyEventHandler((event) => {
-      if (event.type !== 'keydown') return true;
+      // Ctrl+C: copy when there is a selection, otherwise let xterm send SIGINT.
       if (event.key.toLowerCase() === 'c' && event.ctrlKey && !event.shiftKey && !event.altKey) {
         const sel = term.getSelection();
         if (sel) {
@@ -368,6 +360,7 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
           return false;
         }
       }
+
       return true;
     });
 
