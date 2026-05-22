@@ -311,6 +311,23 @@ function createWindow() {
     mainWindow.webContents.send('app-close-request');
   });
 
+  // Any http(s) link (xterm web-links addon, OSC 8, anchor tags) should open
+  // in the user's default browser rather than spawning an empty Electron child
+  // window that paints a black rectangle on close.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      electronShell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url === mainWindow.webContents.getURL()) return;
+    if (/^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      electronShell.openExternal(url).catch(() => {});
+    }
+  });
+
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -521,6 +538,12 @@ ipcMain.handle('save-workspaces', (_, ws) => {
 
 ipcMain.handle('open-folder', (_, folderPath) => {
   electronShell.showItemInFolder(folderPath);
+});
+
+ipcMain.handle('open-external', (_, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+  electronShell.openExternal(url);
+  return true;
 });
 
 ipcMain.handle('get-home-dir', () => os.homedir());

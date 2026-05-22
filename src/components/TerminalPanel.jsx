@@ -254,7 +254,13 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((event, url) => {
+      // Always hand http(s) links to the OS default browser. The default
+      // addon handler calls window.open which Electron resolves into an empty
+      // child BrowserWindow (black rectangle on close).
+      event?.preventDefault?.();
+      window.electron.openExternal?.(url);
+    }));
     term.open(containerRef.current);
     containerRef.current.style.setProperty('--term-bg', theme.background);
     fitAddon.fit();
@@ -321,14 +327,14 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         }
       }
 
-      // Shift+Enter: soft newline for AI chat. Bare LF works in Claude Code,
-      // Augment, Luma and falls back to a literal newline in normal shells.
-      // We must intercept before xterm translates Enter to CR, otherwise
-      // the CLI sees a submit instead of a continuation.
+      // Shift+Enter: soft newline for AI chat. Encode as Alt+Enter
+      // (ESC + CR) which is the convention Claude Code, Augment, and Luma all
+      // recognize as "insert newline" via their key-event parsers. Sending
+      // a bare LF or a bracketed paste containing only "\n" does NOT work in
+      // Luma: it routes plain Enter to submit and its paste handler trims
+      // surrounding newlines off short pastes.
       if (event.key === 'Enter' && event.shiftKey) {
-        const bracketed = term.modes?.bracketedPasteMode;
-        const payload = bracketed ? '\x1b[200~\n\x1b[201~' : '\n';
-        window.electron.writePty({ tabId: tabIdRef.current, data: payload });
+        window.electron.writePty({ tabId: tabIdRef.current, data: '\x1b\r' });
         event.preventDefault();
         return false;
       }

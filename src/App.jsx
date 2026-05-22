@@ -35,6 +35,7 @@ if (!window.electron) {
       const { webUtils } = window.require('electron');
       return webUtils?.getPathForFile?.(file) || file?.path || file?.name || '';
     },
+    openExternal: (url) => window.require('electron').ipcRenderer.invoke('open-external', url),
     minimizeWindow: () => window.require('electron').ipcRenderer.invoke('window-minimize'),
     toggleMaximizeWindow: () => window.require('electron').ipcRenderer.invoke('window-toggle-maximize'),
     closeWindow: () => window.require('electron').ipcRenderer.invoke('window-close'),
