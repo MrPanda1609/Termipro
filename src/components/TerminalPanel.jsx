@@ -13,11 +13,7 @@ import { getThemeColors } from '../themes/index.jsx';
 const ALT_ENTER_RE = /\x1b\[\?(?:1049|1047|47)h/;
 const ALT_EXIT_RE = /\x1b\[\?(?:1049|1047|47)l/;
 
-function enforceCursorPreferences(data, settings, isAltScreen) {
-  // Never overwrite cursor shape while a TUI owns the screen — option pickers
-  // pick their own cursor (or hide it) and rewriting DECSCUSR makes the
-  // selection caret flicker / jump rows.
-  if (isAltScreen) return data;
+function enforceCursorPreferences(data, settings) {
   if (!settings.cursor.blink) return data;
 
   const style = settings.cursor.style === 'underline'
@@ -27,7 +23,10 @@ function enforceCursorPreferences(data, settings, isAltScreen) {
       : '1';
 
   // DECSCUSR: 0/1 blinking block, 2 steady block, 3 blinking underline,
-  // 4 steady underline, 5 blinking bar, 6 steady bar.
+  // 4 steady underline, 5 blinking bar, 6 steady bar. Luma / Claude / Augment
+  // emit steady shapes inside their TUI — rewrite so the chat caret keeps
+  // blinking per user preference. DECTCEM (show/hide) is untouched so the CLI
+  // can still hide the cursor while drawing menus.
   return data.replace(/\x1b\[(?:\d+)? q/g, `\x1b[${style} q`);
 }
 
@@ -219,7 +218,11 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
     if (!term) return;
     const text = window.electron.readClipboardText?.() || '';
     if (text.length > 0) {
-      term.paste(text);
+      if (term.modes?.bracketedPasteMode) {
+        term.paste(text);
+      } else {
+        window.electron.writePty({ tabId: tabIdRef.current, data: text });
+      }
     } else if (window.electron.hasClipboardImage?.()) {
       window.electron.writePty({ tabId: tabIdRef.current, data: '\x16' });
     }
@@ -274,9 +277,8 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
 
     const onDataHandler = ({ tabId: tId, data }) => {
       if (tId !== tabIdRef.current) return;
-      // Cheap pre-check before scanning the buffer state.
       const mightToggleAlt = ALT_ENTER_RE.test(data) || ALT_EXIT_RE.test(data);
-      term.write(enforceCursorPreferences(data, settingsRef.current, altScreenRef.current), () => {
+      term.write(enforceCursorPreferences(data, settingsRef.current), () => {
         if (mightToggleAlt) updateAltScreen();
       });
     };
@@ -319,25 +321,33 @@ export default function TerminalPanel({ tabId, active, cwd, shell, onCwdChange }
         }
       }
 
-      // Luma uses Alt+Enter for multiline. Termipro maps Shift+Enter to the
-      // same terminal sequence so AI chat input feels natural.
+      // Shift+Enter → soft newline for AI chat (Claude Code, Augment, Luma).
+      // Wrap the LF in a bracketed-paste envelope when the CLI has bracketed
+      // paste enabled so it knows this is a continuation rather than submit.
+      // Fall back to a bare LF for CLIs that don't enable bracketed paste.
       if (event.key === 'Enter' && event.shiftKey) {
-        window.electron.writePty({ tabId: tabIdRef.current, data: '\x1b\r' });
+        const bracketed = term.modes?.bracketedPasteMode;
+        const payload = bracketed ? '\x1b[200~\n\x1b[201~' : '\n';
+        window.electron.writePty({ tabId: tabIdRef.current, data: payload });
         event.preventDefault();
         return false;
       }
 
-      // Luma reads Ctrl+V as "paste image". If clipboard has text, we must not
-      // forward raw Ctrl+V or Luma may attach a stale image instead of pasting
-      // text. Use xterm paste so bracketed-paste text reaches the CLI.
+      // Ctrl+V. Decide based on what is actually on the clipboard:
+      //   text  → paste text (respect bracketed paste if the CLI enabled it)
+      //   image → forward ^V so the CLI grabs the bitmap from the OS clipboard
+      // The previous logic always sent ^V when an image was present, which made
+      // Luma attach a stale screenshot instead of pasting the copied text.
       if (event.key.toLowerCase() === 'v' && event.ctrlKey && !event.shiftKey && !event.altKey) {
         const text = window.electron.readClipboardText?.() || '';
         if (text.length > 0) {
-          term.paste(text);
+          if (term.modes?.bracketedPasteMode) {
+            term.paste(text);
+          } else {
+            window.electron.writePty({ tabId: tabIdRef.current, data: text });
+          }
         } else if (window.electron.hasClipboardImage?.()) {
           window.electron.writePty({ tabId: tabIdRef.current, data: '\x16' });
-        } else {
-          term.paste('');
         }
 
         event.preventDefault();
